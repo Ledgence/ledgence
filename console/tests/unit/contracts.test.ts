@@ -1,3 +1,4 @@
+import { decodeProgress, progressTarget } from "../../src/api/progress";
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
@@ -18,7 +19,7 @@ import {
 import { inspectFor, holdsFor } from "../../src/api/queue-policies";
 const source = readFileSync(
   new URL(
-    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json",
+    "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json",
     import.meta.url,
   ),
   "utf8",
@@ -30,8 +31,27 @@ function field(name: string): unknown {
   return Reflect.get(fixture, name);
 }
 describe("Rust-produced Console contract", () => {
+  for (const kind of ["task", "workflow"] as const) {
+    it(`decodes Rust ${kind} progress with its bound cursor and lossless positions`, () => {
+      const query = schema.object({
+        scope: schema.object({ tenant_id: schema.id, namespace: schema.id }),
+        target: progressTarget,
+        cursor: schema.nullable(schema.string),
+        limit: schema.integer(1, 100),
+        wait_ms: schema.integer(0, 20000),
+      })(field(`progress_${kind}_query`));
+      const value = decodeProgress(field(`progress_${kind}_page`), query);
+      expect(value.scope).toEqual(query.scope);
+      expect(value.target.kind).toBe(kind);
+      expect(value.events).toHaveLength(1);
+      if (kind === "workflow") {
+        expect(value.high_watermark).toBe("9007199254740993");
+        expect(value.events[0]?.sequence).toBe("9007199254740993");
+      }
+    });
+  }
   it("decodes configuration and scope-free task pages", () => {
-    expect(decodeConfig(field("config")).contract_version).toBe(14);
+    expect(decodeConfig(field("config")).contract_version).toBe(15);
     expect(taskPage(field("tasks")).items[0]?.descriptor.program.id).toBe(
       "invoice-issuer",
     );

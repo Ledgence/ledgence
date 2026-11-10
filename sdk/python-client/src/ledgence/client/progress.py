@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import sleep as _sleep
 from dataclasses import dataclass
 from enum import StrEnum
 import re
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 PROGRESS_PAGE_LIMIT = 256 * 1024
 PROGRESS_QUERY_LIMIT = 8192
 PROGRESS_CURSOR_LIMIT = 4096
+PROGRESS_MAX_WAIT_MS = 20_000
+_RESPONSE_ALLOWANCE = 1.0
 _TASK_REASONS = frozenset({
     "admission_deferred", "admission_stopped", "submitted", "claimed", "dispatch_authorized",
     "cancel_requested", "cancelled", "report_accepted", "cleanup_confirmed", "succeeded",
@@ -124,18 +127,22 @@ class _ProgressQuery:
     cursor: str | None
     limit: int
     after: int
+    wait_ms: int = 0
 
     @classmethod
-    def create(cls, handle, kind, cursor, limit):
+    def create(cls, handle, kind, cursor, limit, wait_ms=0):
         target = _target({"kind": kind, "id": handle.id})
         limit = codec.integer(limit, "limit", 1, 100)
-        return cls(handle.scope, target, cursor, limit, _position(cursor, handle.scope, target))
+        wait_ms = codec.integer(wait_ms, "wait_ms", 0, PROGRESS_MAX_WAIT_MS)
+        return cls(handle.scope, target, cursor, limit, _position(cursor, handle.scope, target), wait_ms)
 
     def encode(self) -> bytes:
-        return codec.encode({"scope": {"tenant_id": self.scope.tenant_id,
-                                       "namespace": self.scope.namespace},
-                             "target": {"kind": self.target.kind.value, "id": self.target.id},
-                             "cursor": self.cursor, "limit": self.limit}, PROGRESS_QUERY_LIMIT)
+        value = {"scope": {"tenant_id": self.scope.tenant_id, "namespace": self.scope.namespace},
+                 "target": {"kind": self.target.kind.value, "id": self.target.id},
+                 "cursor": self.cursor, "limit": self.limit}
+        if self.wait_ms:
+            value["wait_ms"] = self.wait_ms
+        return codec.encode(value, PROGRESS_QUERY_LIMIT)
 
 
 def _parse_page(raw, query: _ProgressQuery) -> ExecutionProgressPage:
@@ -196,9 +203,17 @@ async def _read(handle, query: _ProgressQuery, deadline: float) -> ExecutionProg
     )
 
 
+def _bounded_wait(wait_ms: int, remaining: float) -> int:
+    # The requested wait is a ceiling, not a promise to block for that duration.
+    # Leave time for the final read, response transfer and parsing.
+    return min(wait_ms, max(0, int((remaining - _RESPONSE_ALLOWANCE) * 1000)))
+
+
 async def progress(handle, kind: str, *, cursor: str | None = None,
-                   limit: int = 100) -> ExecutionProgressPage:
-    query = _ProgressQuery.create(handle, kind, cursor, limit)
+                   limit: int = 100, wait_ms: int = 0) -> ExecutionProgressPage:
+    wait_ms = codec.integer(wait_ms, "wait_ms", 0, PROGRESS_MAX_WAIT_MS)
+    query = _ProgressQuery.create(handle, kind, cursor, limit,
+                                  _bounded_wait(wait_ms, handle._client.request_timeout))
     deadline = asyncio.get_running_loop().time() + handle._client.request_timeout
     return await _read(handle, query, deadline)
 
@@ -206,7 +221,8 @@ async def progress(handle, kind: str, *, cursor: str | None = None,
 async def follow_progress(handle, kind: str, *, cursor: str | None = None,
                           poll_interval: float = 1.0, timeout: float | None = None,
                           stop_on_terminal: bool = True,
-                          limit: int = 100) -> AsyncIterator[ExecutionProgressPage]:
+                          limit: int = 100, wait_ms: int = PROGRESS_MAX_WAIT_MS,
+                          ) -> AsyncIterator[ExecutionProgressPage]:
     """Pull lifecycle pages; caller processing supplies backpressure.
 
     Terminal stops at the observed, drained snapshot by default. Late operational
@@ -214,6 +230,7 @@ async def follow_progress(handle, kind: str, *, cursor: str | None = None,
     No request is retried implicitly, and no observer action mutates the execution.
     """
     query = _ProgressQuery.create(handle, kind, cursor, limit)
+    wait_ms = codec.integer(wait_ms, "wait_ms", 0, PROGRESS_MAX_WAIT_MS)
     interval = codec.duration(poll_interval, "poll_interval")
     if interval < 0.25:
         raise InputError("poll_interval must be at least 0.25 seconds")
@@ -231,6 +248,11 @@ async def follow_progress(handle, kind: str, *, cursor: str | None = None,
         request_deadline = now + handle._client.request_timeout
         if deadline is not None:
             request_deadline = min(request_deadline, deadline)
+        # Initial and backlog reads stay immediate. Only caught-up observation
+        # asks the service to share bounded waits with other subscribers.
+        desired_wait = wait_ms if previous is not None and not previous.has_more else 0
+        query = _ProgressQuery.create(handle, kind, query.cursor, limit,
+                                      _bounded_wait(desired_wait, request_deadline - now))
         try:
             page = await _read(handle, query, request_deadline)
         except RequestTimeout as exc:
@@ -254,6 +276,11 @@ async def follow_progress(handle, kind: str, *, cursor: str | None = None,
             return
         query = _ProgressQuery.create(handle, kind, page.next_cursor, limit)
         if not page.has_more:
-            remaining = interval if deadline is None else min(interval, max(0, deadline - loop.time()))
+            # Count request and caller processing time toward pacing. A service
+            # may return immediately (including terminal keep-following), but a
+            # full long poll must not incur an additional fixed polling delay.
+            remaining = max(0, interval - (loop.time() - now))
+            if deadline is not None:
+                remaining = min(remaining, max(0, deadline - loop.time()))
             if remaining:
-                await asyncio.sleep(remaining)
+                await _sleep(remaining)

@@ -9,6 +9,10 @@ The historical `v0.1.1` source tag and `0.1.0` native bundle predate it. The [gu
 walks through startup and real executions. The [public reference](https://docs.ledgence.com/reference/console)
 covers the interface and operational behavior.
 
+**Development source:** Console contract **15** adds bounded live execution history.
+It requires matching server and assets from the development checkout; published
+0.9.0 continues to use contract 14. See [execution progress](execution-progress.md).
+
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication

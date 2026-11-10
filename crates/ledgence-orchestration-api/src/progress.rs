@@ -4,6 +4,7 @@ use crate::*;
 use serde::{Deserializer, Serializer, de::Error as _};
 
 pub const EXECUTION_PROGRESS_MAX_LIMIT: u32 = 100;
+pub const EXECUTION_PROGRESS_MAX_WAIT_MS: u64 = 20_000;
 pub const EXECUTION_PROGRESS_QUERY_MAX_BYTES: usize = 8192;
 pub const EXECUTION_PROGRESS_PAGE_MAX_BYTES: usize = 256 * 1024;
 pub const EXECUTION_PROGRESS_CURSOR_MAX_BYTES: usize = 4096;
@@ -80,6 +81,14 @@ pub struct ExecutionProgressQuery {
     pub cursor: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: u32,
+    /// Best-effort maximum wait for a new lifecycle event. Storage adapters
+    /// perform an immediate snapshot; application services may coalesce waits.
+    /// This option is not part of the durable cursor identity.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wait_ms: u64,
+}
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 fn default_limit() -> u32 {
     EXECUTION_PROGRESS_MAX_LIMIT
@@ -98,6 +107,9 @@ impl ExecutionProgressQuery {
     pub fn validate(&self) -> Result<u64> {
         self.scope.validate()?;
         self.target.validate()?;
+        if self.wait_ms > EXECUTION_PROGRESS_MAX_WAIT_MS {
+            return Err(invalid("progress wait exceeds 20000 milliseconds"));
+        }
         if !(1..=EXECUTION_PROGRESS_MAX_LIMIT).contains(&self.limit) {
             return Err(invalid("progress limit must be between 1 and 100"));
         }
@@ -228,7 +240,12 @@ impl ExecutionProgressPage {
 
 /// Complete optional capability: bounded metadata reads without recovery, side
 /// effects, or implicit descendant traversal. An observer keeps a cursor rather
-/// than a reserved worker slot or database transaction.
+/// than a reserved worker slot or database transaction. `wait_ms` is an optional
+/// maximum: an adapter may return immediately, including at a terminal snapshot.
+/// Callers must bound fast empty-response polling independently. A coalescing
+/// service cannot satisfy a newly admitted observer with an authoritative read
+/// that started before its admission. If the budget expires before an eligible
+/// snapshot exists, it reports Unavailable instead of returning an older page.
 pub trait ExecutionProgressReader: Send + Sync {
     fn execution_progress<'a>(
         &'a self,
@@ -253,7 +270,28 @@ mod tests {
             },
             cursor: None,
             limit: 100,
+            wait_ms: 0,
         }
+    }
+    #[test]
+    fn wait_is_bounded_optional_and_independent_of_cursor_identity() {
+        let mut query = query();
+        let encoded = serde_json::to_value(&query).unwrap();
+        assert!(encoded.get("wait_ms").is_none());
+        assert_eq!(
+            serde_json::from_value::<ExecutionProgressQuery>(encoded)
+                .unwrap()
+                .wait_ms,
+            0
+        );
+        let cursor = query.cursor_for(7).unwrap();
+        query.cursor = Some(cursor.clone());
+        query.wait_ms = EXECUTION_PROGRESS_MAX_WAIT_MS;
+        assert_eq!(query.validate().unwrap(), 7);
+        assert_eq!(query.cursor_for(7).unwrap(), cursor);
+        assert_eq!(serde_json::to_value(&query).unwrap()["wait_ms"], 20_000);
+        query.wait_ms += 1;
+        assert!(query.validate().is_err());
     }
     #[test]
     fn decimal_sequences_reject_lossy_or_noncanonical_json() {

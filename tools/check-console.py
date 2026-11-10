@@ -5,7 +5,8 @@ Requires an explicitly prepared --console-dist, the ledgence executable, CPython
 psql and LEDGENCE_POSTGRES_URL naming a disposable server that permits database
 creation. Creates and drops only a unique test database; never restarts that
 server. Browser behavior, container recreation and relocated release bundles have
-separate gates. Optional evidence retains scenario results and subprocess logs.
+separate gates. --scenario progress runs only the real progress disconnect/restart
+case. Optional evidence retains scenario results and subprocess logs.
 """
 
 import argparse
@@ -28,6 +29,7 @@ import uuid
 from postgres_fixture import create_owned_database, owned_database_url
 from console_acceptance.harness import ConsoleDeployment
 from console_acceptance.scenarios import run
+from console_acceptance.progress import run as run_progress
 
 
 def run_browser_command(command, root, environment, directory):
@@ -60,6 +62,8 @@ def main():
                         help="directory containing the ledgence executable")
     parser.add_argument("--psql", default="psql")
     parser.add_argument("--evidence", type=Path, help="new directory for logs, resources and results")
+    parser.add_argument("--scenario", choices=("all", "progress"), default="all",
+                        help="all native scenarios (default), or only progress recovery with real services")
     parser.add_argument("--hold-seconds", type=int, default=0,
                         help="keep the owned seeded server/worker for browser tests, maximum 1800 seconds")
     parser.add_argument("--browser-command", nargs=argparse.REMAINDER,
@@ -79,6 +83,8 @@ def main():
         parser.error("--browser-command requires an executable and optional arguments")
     if args.browser_command and args.hold_seconds:
         parser.error("use either --browser-command or --hold-seconds")
+    if args.scenario != "all" and (args.browser_command or args.hold_seconds):
+        parser.error("browser/hold fixtures require --scenario all")
     root = Path(__file__).resolve().parents[1]
     binaries, dist = args.binaries.resolve(), args.console_dist.resolve()
     for name in ("ledgence",):
@@ -132,7 +138,7 @@ def main():
             "source_fixtures": ["tools/http_acceptance/harness.py", "tools/check-workflows.py",
                                 "tools/workflow_acceptance/owned_program.py", "examples/checkpoint-workflow/controller/program.py",
                                 "examples/durable-approval/program.py"],
-            "started_at": time.time(),
+            "started_at": time.time(), "scenario": args.scenario,
         }
         resources["fixture_sha256"] = {
             name: hashlib.sha256((root / name).read_bytes()).hexdigest()
@@ -140,11 +146,16 @@ def main():
                          "tools/console_acceptance/scenarios.py", "tools/console_acceptance/workflows.py",
                          "tools/console_acceptance/explorer.py",
                          "tools/console_acceptance/fork4.py", "tools/console_acceptance/fork4_program.py",
-                         "tools/console_acceptance/fork4_task.py",
+                         "tools/console_acceptance/fork4_task.py", "tools/console_acceptance/progress.py",
                          *resources["source_fixtures"]]
         }
         (directory / "resources.json").write_text(json.dumps(resources, indent=2) + "\n")
-        run(deployment, delay, workflow_gate, record)
+        if args.scenario == "progress":
+            worker = deployment.start_worker()
+            worker = run_progress(deployment, worker, record, publish=workflow_gate["publish"])
+            worker.stop()
+        else:
+            run(deployment, delay, workflow_gate, record)
         if args.hold_seconds or args.browser_command:
             worker = deployment.start_worker()
             stack = {"server": deployment.server_url, "console": deployment.server_url + "/console/",

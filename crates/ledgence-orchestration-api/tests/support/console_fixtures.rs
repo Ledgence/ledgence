@@ -91,6 +91,7 @@ pub fn fixtures() -> Value {
         instance_id: "instance_demo".into(),
         instance_name: "Ledgence".into(),
         capabilities: ConsoleCapabilities {
+            execution_progress: true,
             queue_policies: true,
             resource_policies: true,
             resource_sources: true,
@@ -628,5 +629,60 @@ pub fn fixtures() -> Value {
     admitted.admission_deferrals = 1000;
     admitted.validate().unwrap();
     result["admitted_task_detail"] = serde_json::to_value(admitted).unwrap();
+    for (name, target, state, reason, after, activation_id) in [
+        (
+            "task",
+            ExecutionProgressTarget::Task {
+                id: "task_invoice_1042".into(),
+            },
+            "queued",
+            "submitted",
+            0u64,
+            None,
+        ),
+        (
+            "workflow",
+            ExecutionProgressTarget::Workflow {
+                id: "wf_invoice_1042".into(),
+            },
+            "waiting",
+            "wait_registered",
+            9_007_199_254_740_992u64,
+            Some("activation_1".to_owned()),
+        ),
+    ] {
+        let mut query = ExecutionProgressQuery {
+            scope: Scope {
+                tenant_id: "acme".into(),
+                namespace: "billing".into(),
+            },
+            target: target.clone(),
+            cursor: None,
+            limit: 100,
+            wait_ms: 5000,
+        };
+        if after != 0 {
+            query.cursor = Some(query.cursor_for(after).unwrap());
+        }
+        let page = ExecutionProgressPage {
+            scope: query.scope.clone(),
+            target,
+            state: state.into(),
+            terminal: false,
+            high_watermark: ProgressSequence(after + 1),
+            events: vec![ExecutionProgressEvent {
+                sequence: ProgressSequence(after + 1),
+                at,
+                reason: reason.into(),
+                activation_id,
+                attempt_id: None,
+            }],
+            next_cursor: query.cursor_for(after + 1).unwrap(),
+            has_more: false,
+        };
+        page.validate_for(&query).unwrap();
+        result[format!("progress_{name}_query")] = serde_json::to_value(query).unwrap();
+        result[format!("progress_{name}_page")] = serde_json::to_value(page).unwrap();
+    }
     result
 }

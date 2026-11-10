@@ -151,7 +151,7 @@
     "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
   },
   "executionProgress": {
-    "title": "Resumable single-execution lifecycle pages through API, Python, CLI and MCP",
+    "title": "Resumable lifecycle progress with shared server waits and live Console history",
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/follow-execution-progress"

@@ -75,9 +75,26 @@ MCP requires its build feature, which is included in native release bundles.
 | `approval` | `inbox`, `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
 | `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
 
-There is no separate `workflow` command group. Use the
+The published 0.9.0 CLI has no separate `workflow` command group. Use the
 [HTTP API](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md), [Python client](/reference/python-client),
 Console or MCP for workflow and event operations.
+
+## Execution progress in development source
+
+Matching development builds add `ledgence task progress` and
+`ledgence workflow progress` for bounded lifecycle pages. Add `--follow` to follow
+new events and `--cursor` to resume retained history. These commands require a
+matching development server and are not in the published 0.9.0 CLI.
+
+```sh
+ledgence task progress --server http://127.0.0.1:8080 \
+  --tenant acme --namespace demo --task TASK_ID --follow
+```
+
+`--wait-ms` accepts 0–20,000, defaulting to 20,000 in follow mode and zero for a
+single page. The first read and backlog reads in follow mode are immediate.
+`--timeout-ms` bounds observation without cancelling the execution.
+[Follow an execution and resume from a cursor](/how-to/follow-execution-progress).
 
 ## Create a Python program
 

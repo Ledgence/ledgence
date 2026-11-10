@@ -68,6 +68,7 @@ impl ConsoleServices {
                 run_budgets: false,
                 task_run_budgets: false,
                 queue_policies: false,
+                execution_progress: false,
             },
             suggested_queues: instance.suggested_queues.clone(),
             limits: ConsoleLimits::default(),
@@ -138,6 +139,7 @@ impl ConsoleServices {
     }
 }
 pub(super) const ROUTES: &[Route] = &[
+    Route::post("/v1/console/executions/progress", Policy::Metadata),
     Route::post("/v1/console/budgets/inspect", Policy::Metadata),
     Route::post("/v1/console/budgets/entries", Policy::Metadata),
     Route::post("/v1/console/resources/put", Policy::ResourceControl),
@@ -297,6 +299,7 @@ pub(super) async fn dispatch(
                     .await;
             }
             let mut config = console.config.clone();
+            config.capabilities.execution_progress = server.service.progress_reader().is_ok();
             config.capabilities.queue_policies = super::queue_policies::available(server);
             config.capabilities.run_budgets = super::run_budget::available(server);
             config.capabilities.task_run_budgets =
@@ -574,7 +577,9 @@ pub(super) async fn dispatch(
     }
     console.check_origin(&parts.headers)?;
     check_content_type(&parts.headers)?;
-    let maximum = if path == "/v1/console/resources/put" {
+    let maximum = if path == "/v1/console/executions/progress" {
+        EXECUTION_PROGRESS_QUERY_MAX_BYTES
+    } else if path == "/v1/console/resources/put" {
         ADMISSION_COMMAND_MAX_BYTES
     } else if path == "/v1/console/resources/sources" {
         RESOURCE_SOURCE_CURSOR_MAX_BYTES + 2048
@@ -607,6 +612,9 @@ pub(super) async fn dispatch(
             error: invalid("request body exceeds limit or was interrupted"),
         })?
         .to_vec();
+    if path == "/v1/console/executions/progress" {
+        return super::progress::console_post(server, bytes, scope, context).await;
+    }
     if let Some(operation) = path.strip_prefix("/v1/console/budgets/") {
         return super::run_budget::post(server, operation, bytes, Some(scope), context).await;
     }

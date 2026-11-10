@@ -19,6 +19,7 @@ fn query(after: u64) -> ExecutionProgressQuery {
         },
         cursor: None,
         limit: 100,
+        wait_ms: 0,
     };
     query.cursor = Some(query.cursor_for(after).unwrap());
     query

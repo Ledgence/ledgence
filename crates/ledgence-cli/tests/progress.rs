@@ -55,6 +55,7 @@ fn query(kind: &str) -> ExecutionProgressQuery {
         },
         cursor: None,
         limit: 1,
+        wait_ms: 0,
     }
 }
 async fn respond(socket: &mut TcpStream, query: &ExecutionProgressQuery, sequence: u64, tail: u64) {
@@ -80,8 +81,15 @@ async fn respond(socket: &mut TcpStream, query: &ExecutionProgressQuery, sequenc
         next_cursor: query.cursor_for(sequence).unwrap(),
         has_more: sequence < tail,
     };
+    respond_page(socket, query, &page).await;
+}
+async fn respond_page(
+    socket: &mut TcpStream,
+    query: &ExecutionProgressQuery,
+    page: &ExecutionProgressPage,
+) {
     page.validate_for(query).unwrap();
-    let body = serde_json::to_vec(&page).unwrap();
+    let body = serde_json::to_vec(page).unwrap();
     socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nRequest-Id: req-progress\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
     socket.write_all(&body).await.unwrap();
     socket.shutdown().await.unwrap();
@@ -191,6 +199,89 @@ async fn one_page_does_not_poll_even_when_history_has_more() {
     );
     let page: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(page["has_more"], true);
+    exchange.await.unwrap();
+}
+
+#[tokio::test]
+async fn progress_cli_uses_bounded_server_wait_only_after_it_catches_up() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let exchange = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let first = read_query(&mut socket).await;
+        assert_eq!(first.wait_ms, 0);
+        let empty = ExecutionProgressPage {
+            scope: first.scope.clone(),
+            target: first.target.clone(),
+            state: "active".into(),
+            terminal: false,
+            high_watermark: ProgressSequence(0),
+            events: Vec::new(),
+            next_cursor: first.cursor_for(0).unwrap(),
+            has_more: false,
+        };
+        respond_page(&mut socket, &first, &empty).await;
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let following = read_query(&mut socket).await;
+        assert_eq!(following.cursor, Some(empty.next_cursor));
+        assert!(following.wait_ms > 0 && following.wait_ms <= 8750);
+        respond(&mut socket, &following, 1, 1).await;
+    });
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        command(&server, "task")
+            .args([
+                "--follow",
+                "--poll-interval-ms",
+                "250",
+                "--timeout-ms",
+                "10000",
+            ])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        output
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty())
+            .count(),
+        2
+    );
+    exchange.await.unwrap();
+}
+
+#[tokio::test]
+async fn progress_cli_explicit_single_page_wait_preserves_the_wire_option() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let exchange = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let received = read_query(&mut socket).await;
+        assert_eq!(received.wait_ms, 18000);
+        respond(&mut socket, &received, 1, 1).await;
+    });
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        command(&server, "task")
+            .args(["--wait-ms", "18000"])
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     exchange.await.unwrap();
 }
 

@@ -1,3 +1,4 @@
+import { ExecutionProgress } from "./execution-progress";
 import { Permission } from "../app/permission";
 // SPDX-License-Identifier: MIT
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
@@ -597,7 +598,23 @@ function AttemptObservationDisclosure({
     </details>
   );
 }
-function TaskHistory({ taskId, active }: { taskId: string; active: boolean }) {
+function TaskHistory(props: { taskId: string; active: boolean }) {
+  const config = useInstance();
+  if (!config.capabilities.execution_progress)
+    return <TaskHistoryPages {...props} />;
+  return (
+    <ExecutionProgress target={{ kind: "task", id: props.taskId }}>
+      <TaskHistoryPages {...props} />
+    </ExecutionProgress>
+  );
+}
+function TaskHistoryPages({
+  taskId,
+  active,
+}: {
+  taskId: string;
+  active: boolean;
+}) {
   const config = useInstance();
   const paging = usePagination();
   const query = useResource(

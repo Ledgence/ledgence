@@ -33,7 +33,7 @@ impl CredentialVerifier for Verifier {
                 AccessCapability::SensitiveRead,
                 AccessCapability::ApprovalDecide,
             ],
-            "reader" => vec![AccessCapability::MetadataRead],
+            "reader" | "expiring-reader" => vec![AccessCapability::MetadataRead],
             "source-investigator" => vec![AccessCapability::SensitiveRead],
             "submitter" => vec![AccessCapability::ExecutionSubmit],
             "resource-operator" => vec![AccessCapability::ResourceControl],
@@ -57,7 +57,7 @@ impl CredentialVerifier for Verifier {
             } else {
                 PrincipalClass::Operator
             },
-            if credential == "expiring" {
+            if matches!(credential, "expiring" | "expiring-reader") {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()

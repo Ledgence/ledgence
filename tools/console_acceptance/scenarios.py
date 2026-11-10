@@ -12,6 +12,7 @@ from .harness import ObservationProxy, raw_exchange
 from .workflows import workflow_scenarios
 from .explorer import run as explorer_scenario
 from .fork4 import run as fork4_scenario
+from .progress import run as progress_scenario
 
 
 def equivalent(left, right):
@@ -46,7 +47,7 @@ def static_and_contract(d, record):
         status, _, _ = raw_exchange(d.server_url, "GET", path)
         assert status == 404, (path, status)
     manifest = json.loads((d.console_dist / "console-manifest.json").read_text())
-    assert manifest["console_contract_version"] == 14
+    assert manifest["console_contract_version"] == 15
     for asset in manifest["assets"]:
         status, _, body = raw_exchange(d.server_url, "GET", "/console/" + asset["path"])
         assert status == 200 and body == (d.console_dist / asset["path"]).read_bytes(), asset["path"]
@@ -71,13 +72,13 @@ def static_and_contract(d, record):
         status, _, body = raw_exchange(d.server_url, "GET", link)
         assert status == 200 and body == (d.console_dist / relative).read_bytes(), link
     config = d.api("GET", "config")
-    assert config["contract_version"] == 14
+    assert config["contract_version"] == 15
     assert config["instance_id"] == d.instance["instance_id"]
     # This installation has no admission configuration. Core monitoring and
     # execution remain available; optional governance must not be advertised.
     assert config["capabilities"] == {
         "executions": True, "workflows": True, "programs": True,
-        "workers": True,
+        "workers": True, "execution_progress": True,
         "task_admission": False, "queue_policies": False,
         "resource_policies": False, "resource_sources": False, "resource_fair_sharing": False,
         "run_budgets": False, "task_run_budgets": False,
@@ -349,6 +350,7 @@ def run(d, delay, workflow_gate, record):
     durable_approval(d, record)
     explorer_scenario(d, workflow_gate["publish"], record)
     fork4_scenario(d, workflow_gate["publish"], record)
+    worker = progress_scenario(d, worker, record)
     old_result = d.api("GET", "tasks/result", task_id=task_id)
     worker.stop()
     d.server.stop()
@@ -357,8 +359,9 @@ def run(d, delay, workflow_gate, record):
     assert d.workflow_result(workflow_id)["workflow"]["state"] == "succeeded"
     assert len(d.rows("programs")) == 6
     assert d.rows("tasks/history", task_id=task_id)
+    previous_sessions = {row["worker_session_id"] for row in d.rows("workers")}
     replacement = d.start_worker()
-    newer = eventually(lambda: next((row for row in d.rows("workers") if row["worker_session_id"] != old_session
+    newer = eventually(lambda: next((row for row in d.rows("workers") if row["worker_session_id"] not in previous_sessions
                       and row["snapshot_sequence"]), None), description="replacement connected session")
     assert d.worker_detail(old_session)["worker"]["worker_session_id"] == old_session
     assert newer["worker_session_id"] != old_session

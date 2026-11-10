@@ -323,6 +323,7 @@ Set a cluster-wide maximum for one queue while other queues continue operating. 
 
 The next release adds [resumable lifecycle pages](docs/execution-progress.md) for
 one task or workflow. Matching development server/client builds can follow pages
-with Python or the CLI, save a cursor and reconnect without resubmitting work. MCP
-provides a bounded read. These methods are not included in published 0.9.0 assets.
+with Python or the CLI, save a cursor and reconnect without resubmitting work.
+Bounded server waits share reads between observers; Console adds a live lifecycle
+history. MCP provides a bounded read. These methods are not included in published 0.9.0 assets.
 [Try the example](examples/execution-progress/README.md).

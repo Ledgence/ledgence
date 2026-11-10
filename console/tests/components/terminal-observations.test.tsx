@@ -7,7 +7,7 @@ import {
   QueryClientProvider,
   type QueryClient,
 } from "@tanstack/react-query";
-import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v14.json?raw";
+import fixtureSource from "../../../crates/ledgence-orchestration-api/tests/fixtures/console-v15.json?raw";
 import { parseUserJson, stringifyUserJson } from "../../src/api/json";
 import { decodeConfig } from "../../src/api/codecs";
 import * as dto from "../../src/api/resources";
@@ -23,6 +23,8 @@ function field(key: string): unknown {
   return Reflect.get(fixture, key);
 }
 const config = decodeConfig(field("config"));
+// Qualify the paginated fallback used by adapters without lifecycle progress.
+config.capabilities.execution_progress = false;
 // Tests drive the parent observation explicitly; periodic reads must not mask a
 // missing final refresh or extend the final request's bounded retry policy.
 config.polling.active_task_ms = 60000;
@@ -39,7 +41,7 @@ function response(value: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      "Ledgence-Console-Contract": "14",
+      "Ledgence-Console-Contract": "15",
       "Ledgence-Instance-Id": config.instance_id,
     },
   });

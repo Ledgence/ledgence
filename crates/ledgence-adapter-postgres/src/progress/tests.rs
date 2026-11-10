@@ -10,12 +10,15 @@ use ledgence_worker_api::{
 use serde_json::{Value, json};
 use sqlx::AssertSqlSafe;
 
+mod waits;
+
 fn query(target: ExecutionProgressTarget) -> ExecutionProgressQuery {
     ExecutionProgressQuery {
         scope: scope(),
         target,
         cursor: None,
         limit: 100,
+        wait_ms: 0,
     }
 }
 fn task_query(id: &str) -> ExecutionProgressQuery {
@@ -550,6 +553,7 @@ impl ledgence_worker_api::ProgramStore for NoPrograms {
     }
 }
 struct ProgressServer {
+    service: Arc<ledgence_orchestration_service::ApplicationService>,
     client: ledgence_adapter_http::HttpTaskService,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
@@ -557,17 +561,17 @@ struct ProgressServer {
 impl ProgressServer {
     async fn new(store: PostgresStore) -> Self {
         use std::future::IntoFuture;
-        let service = ledgence_orchestration_service::ApplicationService::new(
+        let service = Arc::new(ledgence_orchestration_service::ApplicationService::new(
             Arc::new(store),
             Arc::new(NoPrograms),
-        );
+        ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(
             axum::serve(
                 listener,
-                ledgence_adapter_http::server::router(Arc::new(service)),
+                ledgence_adapter_http::server::router(service.clone()),
             )
             .with_graceful_shutdown(async {
                 let _ = stopped.await;
@@ -575,6 +579,7 @@ impl ProgressServer {
             .into_future(),
         );
         Self {
+            service,
             client: ledgence_adapter_http::HttpTaskService::new(&format!("http://{address}"))
                 .unwrap(),
             stop: Some(stop),
@@ -582,6 +587,7 @@ impl ProgressServer {
         }
     }
     async fn finish(mut self) {
+        self.service.stop_acquisitions();
         let _ = self.stop.take().unwrap().send(());
         tokio::time::timeout(Duration::from_secs(10), self.task.take().unwrap())
             .await

@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import FrozenInstanceError
 import json
 import unittest
+from unittest.mock import patch
 
 from aiohttp import web
 from ledgence.client import (
@@ -75,6 +76,85 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replay, final)
         self.assertTrue(all(r[:2] == ("POST", "/v1/executions/progress") for r in self.requests))
 
+    async def test_single_page_wait_is_bounded_by_request_budget_and_not_in_cursor(self):
+        self.serve(page())
+        async with AsyncClient(self.url, tenant="tenant", namespace="tests", request_timeout=4) as client:
+            observed = await client.tasks.handle("task").progress(wait_ms=20000)
+        self.assertEqual(json.loads(self.requests[-1][3])["wait_ms"], 3000)
+        self.assertEqual(observed.next_cursor, token(1))
+        async with AsyncClient(self.url, tenant="tenant", namespace="tests", request_timeout=.5) as client:
+            await client.tasks.handle("task").progress(wait_ms=20000)
+        self.assertNotIn("wait_ms", json.loads(self.requests[-1][3]))
+
+    async def test_caught_up_follow_requests_shared_wait_and_can_disable_it(self):
+        for wait_ms in (20000, 0, 100):
+            queries = []
+            async def handle(request, body):
+                queries.append(json.loads(body))
+                return response(page(sequences=()) if len(queries) == 1 else page(state="succeeded"))
+            self.callback = handle
+            observed = [p async for p in self.client.tasks.handle("task").follow_progress(
+                wait_ms=wait_ms, poll_interval=.25)]
+            self.assertEqual(len(observed), 2)
+            self.assertNotIn("wait_ms", queries[0])
+            self.assertEqual(queries[1].get("wait_ms", 0), wait_ms)
+            self.assertEqual(queries[1]["cursor"], observed[0].next_cursor)
+
+    async def test_follow_wait_leaves_response_allowance_inside_observation_deadline(self):
+        queries = []
+        async def handle(request, body):
+            queries.append(json.loads(body))
+            return response(page(sequences=()) if len(queries) == 1 else page(state="succeeded"))
+        self.callback = handle
+        pages = [p async for p in self.client.tasks.handle("task").follow_progress(
+            poll_interval=.25, timeout=3)]
+        self.assertEqual(len(pages), 2)
+        self.assertNotIn("wait_ms", queries[0])
+        self.assertGreater(queries[1]["wait_ms"], 0)
+        self.assertLess(queries[1]["wait_ms"], 2000)
+
+    async def test_slow_empty_wait_does_not_add_another_poll_interval(self):
+        queries = []
+        async def handle(request, body):
+            queries.append(json.loads(body))
+            if len(queries) == 2:
+                await asyncio.sleep(.35)
+            return response(page(state="succeeded") if len(queries) == 3 else page(sequences=()))
+        self.callback = handle
+        # This spies on observer pacing only; HTTP fixture sleeps remain real.
+        with patch("ledgence.client.progress._sleep", wraps=asyncio.sleep) as pause:
+            observed = [p async for p in self.client.tasks.handle("task").follow_progress(poll_interval=.25)]
+        self.assertEqual(len(observed), 2)
+        self.assertEqual(pause.await_count, 1)
+        self.assertEqual([q.get("wait_ms", 0) for q in queries], [0, 20000, 20000])
+
+    async def test_cancellation_during_shared_wait_does_not_restart_or_mutate_execution(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        async def handle(request, body):
+            if len(self.requests) == 1:
+                return response(page())
+            entered.set()
+            await release.wait()
+            return response(page(after=1, sequences=()))
+        self.callback = handle
+        iterator = self.client.tasks.handle("task").follow_progress(poll_interval=.25)
+        first = await anext(iterator)
+        observer = asyncio.create_task(anext(iterator))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            sent = json.loads(self.requests[-1][3])
+            self.assertEqual(sent["wait_ms"], 20000)
+            self.assertEqual(sent["cursor"], first.next_cursor)
+            observer.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await observer
+        finally:
+            release.set()
+            await iterator.aclose()
+        self.assertEqual(len(self.requests), 2)
+        self.assertTrue(all(r[1] == "/v1/executions/progress" for r in self.requests))
+
     async def test_workflow_state_and_activation_identity_are_typed(self):
         self.serve(page(kind="workflow", execution_id="workflow", state="waiting"))
         observed = await self.client.workflows.handle("workflow").progress()
@@ -125,7 +205,11 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         for limit in (0, 101, -1, True, 1.0, "1"):
             with self.subTest(limit=limit), self.assertRaises(InputError):
                 await task.progress(limit=limit)
-        for options in ({"timeout": 0}, {"timeout": True}, {"timeout": float("inf")},
+        for wait_ms in (-1, 20001, True, 1.0, "1"):
+            with self.subTest(wait_ms=wait_ms), self.assertRaises(InputError):
+                await task.progress(wait_ms=wait_ms)
+        for options in ({"wait_ms": -1}, {"wait_ms": 20001}, {"wait_ms": True},
+                        {"timeout": 0}, {"timeout": True}, {"timeout": float("inf")},
                         {"poll_interval": 0.249}, {"poll_interval": False},
                         {"poll_interval": float("nan")}, {"stop_on_terminal": 1},
                         {"limit": 101}, {"cursor": "no"}):
@@ -200,6 +284,7 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([p.events[0].sequence for p in pages], [1, 2, 3])
         self.assertEqual(len(self.requests), 3)
         self.assertEqual([p.has_more for p in pages], [True, True, False])
+        self.assertTrue(all(json.loads(r[3]).get("wait_ms", 0) == 0 for r in self.requests))
 
     async def test_iterator_has_no_background_read_and_can_close(self):
         self.serve(page(high_watermark=2))

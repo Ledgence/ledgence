@@ -540,7 +540,10 @@ Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID -
 and `ledgence workflow progress --server URL --tenant ID --namespace NAME --workflow WORKFLOW_ID`
 read one bounded lifecycle page. Both accept `--cursor` and `--limit 1..100`.
 `--follow` prints JSONL pages until a terminal snapshot is drained;
-`--keep-following` continues beyond it. `--poll-interval-ms` defaults to 1000
-(minimum 250), and `--timeout-ms` bounds observation. Credentials require
+`--keep-following` continues beyond it. `--wait-ms` allows a bounded server wait
+(0–20,000; default 20,000 for follow, zero for a single page). Initial and backlog
+reads in follow mode are immediate. `--poll-interval-ms` sets the minimum request cycle interval
+(default 1000, minimum 250); a long response does not add another sleep.
+`--timeout-ms` bounds observation. Credentials require
 `metadata_read`. These commands require matching development components.
 [Cursor, recovery and output semantics](execution-progress.md).
