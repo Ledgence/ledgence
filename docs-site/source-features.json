@@ -149,5 +149,11 @@
     "guide": "/how-to/limit-queue-concurrency",
     "verifiedOn": "2026-11-04",
     "sourceRevision": "c5589aaae95d1dd944372beaf27847702a96e13c"
+  },
+  "executionProgress": {
+    "title": "Resumable single-execution lifecycle pages through API, Python, CLI and MCP",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/follow-execution-progress"
   }
 }

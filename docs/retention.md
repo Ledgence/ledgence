@@ -237,3 +237,10 @@ is released the normal task retirement rules apply; the ledger still accepts a
 late confirmation from the original worker.
 Retain capacity records for late worker quiescence and audited operator decisions;
 include their growth in retention planning. See [task admission](resource-admission.md#standalone-task-admission).
+
+## Execution progress cursors (development source)
+
+The [progress endpoint](execution-progress.md) reuses existing task/workflow
+history and its execution-wide retention. Cursors do not extend retention.
+There is no independent cursor TTL or partially pruned retained history. A
+retired target returns `NotFound`, not an empty page or a replacement execution.

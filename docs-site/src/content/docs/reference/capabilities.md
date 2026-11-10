@@ -211,3 +211,11 @@ then adjust the weights without interrupting active tasks.
 ## Queue concurrency
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
+
+## In development: resumable execution progress
+
+Matching development server/client builds expose bounded lifecycle pages for a
+task or workflow, Python and CLI followers, and an MCP read tool. Cursors support
+reopening retained history. This does not add model-token streaming or a live
+Console timeline, and it is not available in 0.9.0 distributions.
+[Follow an execution](/how-to/follow-execution-progress).

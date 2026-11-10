@@ -94,3 +94,9 @@ Use matching Ledgence 0.9.0 components and apply the database migrations.
 for polling interactive and batch queues in a 70/30 ratio. For SQS, use the matching [local delivery configuration](delivery-sqs-multi-local.json) after creating both Standard queues. See the
 [worker delivery guide](../docs/worker-delivery.md#worker-local-poll-plans-development)
 for live updates and how to pause polling.
+
+## Observe and resume
+
+[Execution progress](execution-progress/README.md) follows an existing task or
+workflow and saves a cursor for another process. It requires matching development
+server/client builds; the new endpoint is not in published 0.9.0 distributions.

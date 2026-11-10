@@ -11,6 +11,7 @@ mod completion;
 pub mod console;
 mod effect_evidence;
 mod effect_resolution;
+mod progress;
 mod provider_admission;
 mod provider_operation;
 mod queue_policies;
@@ -142,6 +143,10 @@ impl ApplicationService {
 }
 
 impl TaskService for ApplicationService {
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        self.store.progress_reader()?;
+        Ok(self)
+    }
     fn supports_task_run_budgets(&self) -> bool {
         self.store.supports_run_budgets()
             && self.budgets().is_ok()

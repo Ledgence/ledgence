@@ -3,6 +3,7 @@ mod access;
 mod admission;
 mod audit;
 mod evidence;
+mod progress;
 mod provider;
 mod provider_admission;
 mod queue_policies;
@@ -504,6 +505,9 @@ fn query(scope: &Scope, task_id: &str) -> Vec<(&'static str, String)> {
 }
 
 impl TaskService for HttpTaskService {
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        Ok(self)
+    }
     fn queue_policy_client(&self) -> Result<&dyn QueuePolicyClient> {
         Ok(self)
     }

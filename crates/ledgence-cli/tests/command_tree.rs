@@ -23,6 +23,7 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
             "access",
             "program",
             "task",
+            "workflow",
             "approval",
             "audit",
             "queue",
@@ -53,12 +54,14 @@ fn help_and_version_need_no_running_services_or_valid_environment() {
         ("queue", vec!["list", "inspect", "holds", "put", "release"]),
         ("effect", vec!["inbox", "inspect", "resolve"]),
         ("mcp", vec!["serve"]),
+        ("workflow", vec!["progress"]),
         ("worker", vec!["run", "connect"]),
         ("orchestrator", vec!["migrate", "serve", "retain"]),
         (
             "task",
             vec![
-                "submit", "list", "inspect", "status", "result", "attempt", "history", "cancel",
+                "submit", "list", "inspect", "status", "result", "attempt", "history", "progress",
+                "cancel",
             ],
         ),
     ] {

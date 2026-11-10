@@ -249,3 +249,6 @@ mod protocol_tests;
 
 #[cfg(test)]
 mod effect_tests;
+
+#[cfg(test)]
+mod progress_tests;

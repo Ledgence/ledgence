@@ -1,5 +1,6 @@
 //! Scope-bound tool dispatch over portable service ports, without a framework SDK.
 mod admission;
+mod progress;
 mod queue_policies;
 use crate::schemas::tool_definitions;
 use ledgence_orchestration_api::{console::*, *};
@@ -156,6 +157,8 @@ impl ToolDispatcher {
         self.tools.iter().filter(|tool| {
             (!self.read_only || tool.read_only)
                 && (tool.name != "ledgence_audit_query" || self.audit.is_some())
+                && (tool.name != "ledgence_execution_progress"
+                    || self.tasks.progress_reader().is_ok())
                 && (tool.name != "ledgence_effect_resolve" || self.allow_effect_resolution)
                 && (!(admission::is_mutation(tool.name) || queue_policies::is_mutation(tool.name))
                     || self.allow_resource_control)
@@ -213,6 +216,9 @@ impl ToolDispatcher {
         }
         if admission::is_tool(name) {
             return self.call_admission(name, arguments).await;
+        }
+        if name == "ledgence_execution_progress" {
+            return self.call_progress(arguments).await;
         }
         let value = match name {
             "ledgence_audit_query" => {

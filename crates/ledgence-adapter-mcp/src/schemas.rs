@@ -17,6 +17,18 @@ pub struct ToolDefinition {
 pub fn tool_definitions(read_only: bool) -> Vec<ToolDefinition> {
     let mut tools = vec![
         tool(
+            "ledgence_execution_progress",
+            "Read one bounded page of committed lifecycle metadata for a task or workflow in this session's fixed scope. Requires metadata_read. Save next_cursor after processing the page and pass it unchanged to resume. has_more means the observed snapshot has remaining events. terminal describes the logical outcome, not a sealed history: late cleanup can append. No recursive child events, application payloads, token stream, waiting, or execution mutation. Retired executions return not_found; sequence and high_watermark are full-width decimal strings.",
+            object(
+                json!({"target": object(json!({"kind":{"type":"string","enum":["task","workflow"]},"id":identifier()}), &["kind","id"]),
+                    "cursor":{"type":["string","null"],"minLength":2,"maxLength":4096,"pattern":"^(?:[0-9a-f]{2})+$","description":"Opaque next_cursor from a prior progress page for this exact execution."},
+                    "limit":{"type":"integer","minimum":1,"maximum":100,"default":100}}),
+                &["target"],
+            ),
+            true,
+            false,
+        ),
+        tool(
             "ledgence_audit_query",
             "Read operator audit events in the configured scope without task/workflow inputs or outputs. Resource policy and admission release events include retained operator reasons. Requires metadata_read and audited credential mode. Filter by one resource or exact approval occurrence. For event or approval_acceptance use limit 2 and no cursor. A successful empty exact result means no verified actor was recorded; an error does not establish absence. Actor attribution identifies the credential holder, including shared services. Pagination is not a cross-request snapshot.",
             object(
@@ -376,8 +388,8 @@ mod tests {
         let all = tool_definitions(false);
         let names: std::collections::HashSet<_> = all.iter().map(|tool| tool.name).collect();
         assert_eq!(names.len(), all.len());
-        assert_eq!(all.len(), 36);
-        assert_eq!(tool_definitions(true).len(), 25);
+        assert_eq!(all.len(), 37);
+        assert_eq!(tool_definitions(true).len(), 26);
         for name in [
             "ledgence_resource_list",
             "ledgence_resource_decisions",

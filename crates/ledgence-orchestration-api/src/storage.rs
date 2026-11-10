@@ -15,6 +15,13 @@ use ledgence_worker_api::ProgramDescriptor;
 /// the required locks, and atomically persist its complete transition. These
 /// operations must not perform external program resolution inside transactions.
 pub trait TaskStore: Send + Sync {
+    /// Optional complete read capability for resumable execution lifecycle pages.
+    fn progress_reader(&self) -> Result<&dyn ExecutionProgressReader> {
+        Err(ContractError::Unavailable(
+            "execution progress is unavailable".into(),
+        ))
+    }
+
     fn supports_run_budgets(&self) -> bool {
         false
     }
