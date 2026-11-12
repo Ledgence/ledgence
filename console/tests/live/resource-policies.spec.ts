@@ -2,17 +2,26 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { login } from "./credential-session";
+import { decodeAccess } from "../../src/api/access";
+import { inspectCommittedResource } from "./resource-policy-witness";
 
 const putPath = "/v1/console/resources/put";
 const putReply = (page: Page) =>
-  page.waitForResponse((r) => new URL(r.url()).pathname === putPath);
+  page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname === putPath && r.request().method() === "POST",
+  );
 async function save(page: Page, reason: string, status = 200) {
   await page.getByLabel("Reason for this change").fill(reason);
   const reply = putReply(page);
   await page.getByRole("button", { name: "Save policy" }).click();
   const r = await reply;
   expect(r.status()).toBe(status);
-  return status === 200 ? r.json() : null;
+  if (status === 200)
+    await expect(
+      page.getByRole("button", { name: "Edit policy" }),
+    ).toBeEnabled();
+  return r;
 }
 
 test("resource policies replay a lost acknowledgement, fence stale edits and keep source discovery audited", async ({
@@ -31,6 +40,22 @@ test("resource policies replay a lost acknowledgement, fence stale edits and kee
   const name = "pw-resource-" + randomUUID(),
     detail = "/console/resources?name=" + encodeURIComponent(name);
   await login(page.context(), url.origin, "LEDGENCE_QUEUE_OPERATOR_FILE");
+  const operatorReply = await page.request.get(
+    url.origin + "/v1/console/access",
+    {
+      headers: {
+        Origin: url.origin,
+        "X-Ledgence-Console-Origin": url.origin,
+      },
+      maxRedirects: 0,
+      maxRetries: 0,
+    },
+  );
+  expect(operatorReply.status()).toBe(200);
+  const operator = decodeAccess(await operatorReply.json());
+  if (operator.mode !== "credentials")
+    throw new Error("This acceptance requires the credential-bound operator.");
+  const authority = { actor: operator.actor_key, scope: operator.scope };
   await page.goto("/console/resources");
   await page.getByLabel("Resource name").fill(name);
   await page.getByRole("button", { name: "Create policy" }).click();
@@ -54,7 +79,7 @@ test("resource policies replay a lost acknowledgement, fence stale edits and kee
     "**" + putPath,
     async (route) => {
       original = route.request().postData() ?? "";
-      const actual = await route.fetch();
+      const actual = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
       expect(actual.status()).toBe(200);
       expect(await actual.json()).toMatchObject({
         already_accepted: false,
@@ -71,15 +96,41 @@ test("resource policies replay a lost acknowledgement, fence stale edits and kee
   // Router navigation stays in the signed-in session and recovers the frozen command.
   await page.getByRole("link", { name: "All resources" }).click();
   await page.getByRole("link", { name, exact: true }).click();
-  const retried = putReply(page);
-  await page.getByRole("button", { name: "Retry exact request" }).click();
-  const replay = await retried;
-  expect(replay.request().postData()).toBe(original);
-  expect(replay.status()).toBe(200);
-  expect(await replay.json()).toMatchObject({
+  // Capture the server's real replay receipt before delivering its unchanged
+  // response to the browser. The receipt-only already_accepted flag cannot be
+  // recovered from a later policy inspection.
+  let acceptReplay!: (value: unknown) => void;
+  let rejectReplay!: (error: unknown) => void;
+  const capturedReplay = new Promise<unknown>((resolve, reject) => {
+    acceptReplay = resolve;
+    rejectReplay = reject;
+  });
+  await page.route(
+    "**" + putPath,
+    async (route) => {
+      try {
+        expect(route.request().postData()).toBe(original);
+        const actual = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
+        expect(actual.status()).toBe(200);
+        const receipt: unknown = await actual.json();
+        await route.fulfill({ response: actual });
+        acceptReplay(receipt);
+      } catch (error) {
+        rejectReplay(error);
+        await route.abort("failed").catch(() => {});
+      }
+    },
+    { times: 1 },
+  );
+  const [replay] = await Promise.all([
+    capturedReplay,
+    page.getByRole("button", { name: "Retry exact request" }).click(),
+  ]);
+  expect(replay).toMatchObject({
     already_accepted: true,
     resource: {
       name,
+      scope: authority.scope,
       revision: 1,
       policy: {
         max_occupancy: 5,
@@ -104,9 +155,26 @@ test("resource policies replay a lost acknowledgement, fence stale edits and kee
   await stale.getByLabel("Maximum occupancy").fill("8");
   await page.getByRole("button", { name: "Edit policy" }).click();
   await page.getByLabel("Maximum occupancy").fill("4");
-  const accepted = await save(page, "Reduce maximum occupancy");
+  const acceptedReply = await save(page, "Reduce maximum occupancy");
+  await expect(
+    page.getByText("Resource policy saved at revision 2."),
+  ).toBeVisible();
+  const accepted = await inspectCommittedResource(
+    page,
+    acceptedReply,
+    authority,
+    name,
+  );
   expect(accepted.resource.revision).toBe(2);
   await save(stale, "Stale limit change", 409);
+  // The conflicting write must not have changed the accepted policy.
+  const afterConflict = await inspectCommittedResource(
+    page,
+    acceptedReply,
+    authority,
+    name,
+  );
+  expect(afterConflict.resource).toEqual(accepted.resource);
   await expect(
     stale.getByText("The revision changed.", { exact: false }),
   ).toBeVisible();
@@ -118,7 +186,16 @@ test("resource policies replay a lost acknowledgement, fence stale edits and kee
   await expect(stale.getByLabel("Maximum occupancy")).toHaveValue("4");
   await stale.getByLabel("Use weighted queue groups").uncheck();
   await stale.getByLabel("Limit start rate").uncheck();
-  const final = await save(stale, "Return to FIFO");
+  const finalReply = await save(stale, "Return to FIFO");
+  await expect(
+    stale.getByText("Resource policy saved at revision 3."),
+  ).toBeVisible();
+  const final = await inspectCommittedResource(
+    stale,
+    finalReply,
+    authority,
+    name,
+  );
   expect(final.resource.revision).toBe(3);
   expect(final.resource.policy.rate).toBeNull();
   expect(final.resource.policy).not.toHaveProperty("fair_sharing");
