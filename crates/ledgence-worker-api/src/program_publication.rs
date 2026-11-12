@@ -1,5 +1,5 @@
 //! Immutable artifact publication, separate from the worker's read-only store.
-use crate::{Digest, ProgramDescriptor, ProgramRef};
+use crate::{Digest, ProgramDescriptor, ProgramManifest, ProgramRef};
 use serde::{Deserialize, Serialize};
 use std::{fmt, future::Future, pin::Pin};
 
@@ -60,17 +60,58 @@ pub struct PublicationLimits {
     pub max_descriptor_bytes: u64,
 }
 
-impl Default for PublicationLimits {
-    fn default() -> Self {
-        Self {
+/// Fixed package verification contracts. Profile selection is transport-local;
+/// it does not add fields to the released capabilities or manifest JSON.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProgramPackageProfile {
+    Legacy4096,
+    Entries8192V1,
+}
+
+impl ProgramPackageProfile {
+    /// Only the raw ZIP member maximum differs between these profiles.
+    pub const fn limits(self) -> PublicationLimits {
+        PublicationLimits {
             max_archive_bytes: 64 * 1024 * 1024,
             max_expanded_bytes: 256 * 1024 * 1024,
             max_file_bytes: 64 * 1024 * 1024,
-            max_entries: 4096,
+            max_entries: match self {
+                Self::Legacy4096 => 4096,
+                Self::Entries8192V1 => 8192,
+            },
             max_manifest_bytes: 64 * 1024,
             max_descriptor_bytes: 16 * 1024,
         }
     }
+}
+
+impl Default for PublicationLimits {
+    fn default() -> Self {
+        ProgramPackageProfile::Legacy4096.limits()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProgramPackageInspection {
+    pub manifest: ProgramManifest,
+    /// Actual validated raw ZIP members, including directories and the manifest.
+    /// Implicit parent directories are not additional archive members.
+    pub entry_count: u64,
+}
+
+/// Complete package verification without consuming or copying its archive.
+/// Callers run this CPU-bound operation on their owned blocking executor and
+/// retain the same bytes for publication. Implementors verify descriptor identity
+/// and encoded size, actual archive length/digest, raw directory consistency,
+/// every path, expansion, checksum, manifest, and all supplied limits. Inspection
+/// must not execute programs or require compatibility with the inspecting host.
+pub trait ProgramPackageInspector: Send + Sync {
+    fn inspect(
+        &self,
+        descriptor: &ProgramDescriptor,
+        archive: &[u8],
+        limits: &PublicationLimits,
+    ) -> PublicationResult<ProgramPackageInspection>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -120,4 +161,30 @@ pub trait ProgramArtifactPublisher: Send + Sync {
         expected_digest: Digest,
         archive: Vec<u8>,
     ) -> PublicationFuture<'a, PublishArtifactResult>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profiles_preserve_legacy_limits_and_wire_shape() {
+        let legacy = ProgramPackageProfile::Legacy4096.limits();
+        assert_eq!(PublicationLimits::default(), legacy);
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap(),
+            serde_json::json!({
+                "max_archive_bytes": 67108864,
+                "max_expanded_bytes": 268435456,
+                "max_file_bytes": 67108864,
+                "max_entries": 4096,
+                "max_manifest_bytes": 65536,
+                "max_descriptor_bytes": 16384
+            })
+        );
+        let mut expanded = ProgramPackageProfile::Entries8192V1.limits();
+        assert_eq!(expanded.max_entries, 8192);
+        expanded.max_entries = legacy.max_entries;
+        assert_eq!(expanded, legacy);
+    }
 }

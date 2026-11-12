@@ -285,6 +285,13 @@ The orchestrator must opt in with `--allow-program-publication`, an
 `--instance-config` and a writable filesystem `--store`. A read-only HTTPS
 store remains a valid deployment without upload capability.
 
+Development builds select the 8,192-entry package profile, including directories
+and the manifest. The CLI negotiates the server profile and fully inspects the
+retained ZIP before PUT. Published 0.9.0 servers and workers retain the 4,096-entry
+limit. Upgrade all eligible workers before using larger packages; existing small
+packages remain compatible. Package byte limits are unchanged; the external build
+receipt is independently bounded to 32 MiB, while publication receipts remain 64 KiB.
+
 HTTP publication saves its exact ZIP and a receipt before sending. It makes one
 PUT without automatic retries. `--resume RECEIPT.json` is exclusive of other
 options and retries only unconfirmed stages against the recorded server. A

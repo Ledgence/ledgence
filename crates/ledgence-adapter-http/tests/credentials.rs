@@ -71,10 +71,13 @@ async fn configured_clients_send_bound_credentials_and_decode_definitive_denials
                 .unwrap_err(),
             error
         );
-        let publisher = HttpProgramPublisher::new(&server)
-            .unwrap()
-            .with_credentials(credentials)
-            .unwrap();
+        let publisher = HttpProgramPublisher::new(
+            &server,
+            Arc::new(ledgence_adapter_artifact::ZipProgramPackageInspector),
+        )
+        .unwrap()
+        .with_credentials(credentials)
+        .unwrap();
         assert_eq!(publisher.capabilities().await.unwrap_err().kind, kind);
         assert_eq!(count.load(Ordering::SeqCst), 2);
         task.abort();
@@ -133,10 +136,13 @@ async fn credential_bearing_clients_never_follow_redirects() {
             .await
             .is_err()
     );
-    let publisher = HttpProgramPublisher::new(&server)
-        .unwrap()
-        .with_bearer_token("local-test-credential")
-        .unwrap();
+    let publisher = HttpProgramPublisher::new(
+        &server,
+        Arc::new(ledgence_adapter_artifact::ZipProgramPackageInspector),
+    )
+    .unwrap()
+    .with_bearer_token("local-test-credential")
+    .unwrap();
     assert!(publisher.capabilities().await.is_err());
     assert_eq!(leaked.load(Ordering::SeqCst), 0);
     source.abort();

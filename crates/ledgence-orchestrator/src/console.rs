@@ -9,7 +9,9 @@ use ledgence_orchestration_service::{
     catalog::ProgramCatalogApplicationService, console::ConsoleApplicationService,
     worker_observations::WorkerObservationApplicationService,
 };
-use ledgence_worker_api::{ProgramDescriptor, ProgramManifest, ProgramStore};
+use ledgence_worker_api::{
+    ProgramDescriptor, ProgramManifest, ProgramPackageProfile, ProgramStore,
+};
 use std::sync::Arc;
 
 struct PackageVerifier {
@@ -29,13 +31,16 @@ impl ProgramPackageVerifier for PackageVerifier {
             let descriptor = descriptor.clone();
             tokio::task::spawn_blocking(move || {
                 let _permit = permit;
-                verify_program_package(bytes, &descriptor, &ArtifactLimits::default()).map_err(
-                    |_| {
-                        ContractError::InvalidInput(
-                            "program package failed archive verification".into(),
-                        )
-                    },
+                verify_program_package(
+                    bytes,
+                    &descriptor,
+                    &ArtifactLimits::for_profile(ProgramPackageProfile::Entries8192V1),
                 )
+                .map_err(|_| {
+                    ContractError::InvalidInput(
+                        "program package failed archive verification".into(),
+                    )
+                })
             })
             .await
             .map_err(|_| ContractError::Unavailable("package verifier failed".into()))?

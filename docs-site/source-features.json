@@ -161,5 +161,11 @@
     "availability": "development",
     "sourceRef": "develop",
     "guide": "/how-to/share-execution-files"
+  },
+  "agentFrameworkAdapters": {
+    "title": "Optional PydanticAI, Google ADK and Claude Agent SDK recovery profiles",
+    "availability": "development",
+    "sourceRef": "develop",
+    "guide": "/how-to/agent-frameworks"
   }
 }

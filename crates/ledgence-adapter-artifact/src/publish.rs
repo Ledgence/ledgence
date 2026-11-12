@@ -249,7 +249,7 @@ fn persist_with_observer(
     })
 }
 
-fn check_encoded_descriptor(
+pub(crate) fn check_encoded_descriptor(
     descriptor: &ProgramDescriptor,
     limits: &ArtifactLimits,
 ) -> Result<Vec<u8>> {
@@ -284,7 +284,7 @@ fn unknown() -> PublicationError {
         "publication outcome is unknown; retry the identical archive",
     )
 }
-fn validation_error(error: AdapterError) -> PublicationError {
+pub(crate) fn validation_error(error: AdapterError) -> PublicationError {
     if matches!(error, AdapterError::Limit(_)) {
         too_large()
     } else {

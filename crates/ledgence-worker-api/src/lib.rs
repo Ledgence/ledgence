@@ -11,7 +11,8 @@
 
 mod program_publication;
 pub use program_publication::{
-    ProgramArtifactPublisher, PublicationCapabilities, PublicationError, PublicationErrorKind,
+    ProgramArtifactPublisher, ProgramPackageInspection, ProgramPackageInspector,
+    ProgramPackageProfile, PublicationCapabilities, PublicationError, PublicationErrorKind,
     PublicationFuture, PublicationLimits, PublicationResult, PublishArtifactResult,
 };
 mod measurements;

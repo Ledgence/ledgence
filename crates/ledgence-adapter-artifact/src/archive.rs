@@ -3,7 +3,7 @@ use crate::{
     error::{AdapterError, Result},
     filesystem::{executable_bits, open_regular},
 };
-use ledgence_worker_api::{ProgramDescriptor, ProgramManifest};
+use ledgence_worker_api::{ProgramDescriptor, ProgramManifest, ProgramPackageInspection};
 use sha2::{Digest as _, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -182,6 +182,15 @@ pub(crate) fn verify_package<B: AsRef<[u8]>>(
     descriptor: &ProgramDescriptor,
     limits: &ArtifactLimits,
 ) -> Result<ProgramManifest> {
+    inspect_package(bytes, descriptor, limits).map(|inspection| inspection.manifest)
+}
+
+/// Reuse the complete verifier for borrowed publication preflight.
+pub(crate) fn inspect_package<B: AsRef<[u8]>>(
+    bytes: B,
+    descriptor: &ProgramDescriptor,
+    limits: &ArtifactLimits,
+) -> Result<ProgramPackageInspection> {
     limits.validate()?;
     let mut plan = inspect_for_publication(bytes, descriptor, limits)?;
     for (index, member) in plan.members.iter().enumerate() {
@@ -195,7 +204,10 @@ pub(crate) fn verify_package<B: AsRef<[u8]>>(
             ));
         }
     }
-    Ok(plan.manifest)
+    Ok(ProgramPackageInspection {
+        manifest: plan.manifest,
+        entry_count: plan.members.len() as u64,
+    })
 }
 
 impl<B: AsRef<[u8]>> ArchivePlan<B> {

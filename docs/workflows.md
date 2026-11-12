@@ -24,6 +24,12 @@ recovery. Provider waits release the worker between independently leased probes.
 parent/child lifecycle coordination. Administrative redrive, automatic code
 upgrades, and large externalized checkpoint/result payloads are later capabilities.
 
+Development workers also offer [optional agent framework adapters](agent-integrations.md)
+for PydanticAI, Google ADK and Claude Agent SDK. Invoke them directly from the
+controller. Their owned operations drain before invocation cleanup; model/tool
+callbacks cannot stage workflow work or nested adapters. Applications may instead
+use a framework normally in a task without these workflow-journal capabilities.
+
 ## Application model
 
 Use a prepared Python package with runtime protocol **3**. The manifest schema

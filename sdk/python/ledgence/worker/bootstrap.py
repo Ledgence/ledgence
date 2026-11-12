@@ -332,11 +332,14 @@ async def _invoke_async(handler, event, envelope, limit, extension, rpc, effect_
         return _failure(envelope, "workflow_error" if extension is not None else "business_error", exc, limit,
                         status="runtime_error" if extension is not None else "error")
     finally:
-        _unbind(artifact_binding, artifact_token)
-        if context is not None:
-            await context._finish(cancel=failed)
-        if token is not None:
-            _workflow.reset(token)
+        try:
+            if context is not None:
+                await context._finish(cancel=failed)
+        finally:
+            # Owned cleanup may still use invocation-scoped artifacts/RPCs.
+            _unbind(artifact_binding, artifact_token)
+            if token is not None:
+                _workflow.reset(token)
 
 
 class _RuntimeRpc:

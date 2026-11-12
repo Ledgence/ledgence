@@ -1,9 +1,11 @@
 //! Bounded immutable upload transport. Upload admission and deadlines are
 //! independent of JSON control operations and their thirty-second budget.
 use super::*;
+use crate::program_package_profile;
 use ledgence_worker_api::{
-    Digest, ProgramArtifactPublisher, ProgramRef, PublicationCapabilities, PublicationError,
-    PublicationErrorKind, PublicationLimits, PublicationResult, PublishArtifactResult,
+    Digest, ProgramArtifactPublisher, ProgramPackageProfile, ProgramRef, PublicationCapabilities,
+    PublicationError, PublicationErrorKind, PublicationLimits, PublicationResult,
+    PublishArtifactResult,
 };
 use std::time::Duration;
 
@@ -24,24 +26,33 @@ pub(super) const ROUTES: &[Route] = &[
 #[derive(Clone)]
 pub struct PublicationService {
     writer: Arc<dyn ProgramArtifactPublisher>,
+    expanded_writer: Option<Arc<dyn ProgramArtifactPublisher>>,
     slots: Arc<Semaphore>,
     limits: PublicationLimits,
     concurrency: u32,
     timeout: Duration,
 }
 impl PublicationService {
-    /// The supplied writer must enforce the standard PublicationLimits.
+    /// The supplied writer must enforce the legacy 4096-entry publication profile.
     pub fn new(writer: Arc<dyn ProgramArtifactPublisher>) -> Self {
         Self {
             writer,
+            expanded_writer: None,
             slots: Arc::new(Semaphore::new(MAX_CONCURRENT_UPLOADS as usize)),
             limits: PublicationLimits::default(),
             concurrency: MAX_CONCURRENT_UPLOADS,
             timeout: Duration::from_millis(UPLOAD_TIMEOUT_MS),
         }
     }
+    /// Enable the fixed 8192-entry profile. Both writers must publish into the
+    /// same immutable store; their upload admission, timeout and drain are shared.
+    /// The supplied writer must enforce `Entries8192V1` package limits.
+    pub fn with_extended_profile(mut self, writer: Arc<dyn ProgramArtifactPublisher>) -> Self {
+        self.expanded_writer = Some(writer);
+        self
+    }
     /// Lower transport admission budgets without changing writer verification
-    /// limits. ZIP limits remain the standard publisher contract.
+    /// limits. Each writer retains its selected fixed package profile.
     pub fn with_transport_limits(
         mut self,
         max_archive_bytes: u64,
@@ -75,12 +86,28 @@ impl PublicationService {
             .acquire_many_owned(self.concurrency)
             .await;
     }
-    fn capabilities(&self, registration_enabled: bool) -> PublicationCapabilities {
+    fn negotiated_profile(&self, requested: ProgramPackageProfile) -> ProgramPackageProfile {
+        if requested == ProgramPackageProfile::Entries8192V1 && self.expanded_writer.is_some() {
+            requested
+        } else {
+            ProgramPackageProfile::Legacy4096
+        }
+    }
+    fn profile_limits(&self, profile: ProgramPackageProfile) -> PublicationLimits {
+        let mut limits = profile.limits();
+        limits.max_archive_bytes = self.limits.max_archive_bytes;
+        limits
+    }
+    fn capabilities(
+        &self,
+        registration_enabled: bool,
+        profile: ProgramPackageProfile,
+    ) -> PublicationCapabilities {
         PublicationCapabilities {
             enabled: true,
             registration_enabled,
             mode: Some("immutable".into()),
-            limits: self.limits.clone(),
+            limits: self.profile_limits(profile),
             max_concurrent_uploads: self.concurrency,
             transfer_timeout_ms: self.timeout.as_millis() as u64,
         }
@@ -115,7 +142,11 @@ fn invalid_artifact() -> PublicationError {
         "invalid publication request",
     )
 }
-fn failure(error: PublicationError) -> (u16, Vec<u8>, Option<&'static str>) {
+pub(super) struct PublicationReply {
+    pub response: (u16, Vec<u8>, Option<&'static str>),
+    pub profile: Option<ProgramPackageProfile>,
+}
+fn failure(error: PublicationError) -> PublicationReply {
     let (status, code, message) = match error.kind {
         PublicationErrorKind::Unauthenticated => {
             (401, "unauthenticated", "authentication required".into())
@@ -150,23 +181,34 @@ fn failure(error: PublicationError) -> (u16, Vec<u8>, Option<&'static str>) {
         }
     };
     // Never reflect adapter messages, paths or archive contents into the reply.
-    (
-        status,
-        serde_json::to_vec(&PublicationError::new(error.kind, message)).expect("error serializes"),
-        Some(code),
-    )
+    PublicationReply {
+        response: (
+            status,
+            serde_json::to_vec(&PublicationError::new(error.kind, message))
+                .expect("error serializes"),
+            Some(code),
+        ),
+        profile: None,
+    }
 }
 
-pub(super) async fn dispatch(
-    server: &Server,
-    request: Request,
-) -> (u16, Vec<u8>, Option<&'static str>) {
+pub(super) async fn dispatch(server: &Server, request: Request) -> PublicationReply {
     if server.stopping.load(Ordering::Acquire) {
         return failure(error(
             PublicationErrorKind::Storage,
             "orchestrator is shutting down",
         ));
     }
+    let requested_profile = match program_package_profile::parse(
+        request
+            .headers()
+            .get_all(program_package_profile::HEADER)
+            .iter()
+            .map(|value| value.as_bytes()),
+    ) {
+        Ok(profile) => profile,
+        Err(()) => return failure(invalid_artifact()),
+    };
     let registration_enabled = server
         .console
         .as_ref()
@@ -187,6 +229,9 @@ pub(super) async fn dispatch(
         if !matches!(empty, Ok(Ok(_))) {
             return failure(invalid_artifact());
         }
+        let profile = service.map_or(ProgramPackageProfile::Legacy4096, |service| {
+            service.negotiated_profile(requested_profile)
+        });
         let capabilities = service.map_or_else(
             || PublicationCapabilities {
                 enabled: false,
@@ -196,13 +241,16 @@ pub(super) async fn dispatch(
                 max_concurrent_uploads: 0,
                 transfer_timeout_ms: UPLOAD_TIMEOUT_MS,
             },
-            |service| service.capabilities(registration_enabled),
+            |service| service.capabilities(registration_enabled, profile),
         );
-        return (
-            200,
-            serde_json::to_vec(&capabilities).expect("capabilities serialize"),
-            None,
-        );
+        return PublicationReply {
+            response: (
+                200,
+                serde_json::to_vec(&capabilities).expect("capabilities serialize"),
+                None,
+            ),
+            profile: Some(profile),
+        };
     }
     let Some(service) = service else {
         return failure(disabled());
@@ -213,12 +261,15 @@ pub(super) async fn dispatch(
         return failure(invalid_artifact());
     }
     let deadline = Instant::now() + service.timeout;
-    match tokio::time::timeout_at(deadline, upload(service, request)).await {
-        Ok(Ok(reply)) if Instant::now() < deadline => (
-            if reply.already_published { 200 } else { 201 },
-            serde_json::to_vec(&reply).expect("publication result serializes"),
-            None,
-        ),
+    match tokio::time::timeout_at(deadline, upload(service, request, requested_profile)).await {
+        Ok(Ok(reply)) if Instant::now() < deadline => PublicationReply {
+            response: (
+                if reply.already_published { 200 } else { 201 },
+                serde_json::to_vec(&reply).expect("publication result serializes"),
+                None,
+            ),
+            profile: None,
+        },
         Ok(Err(error)) => failure(error),
         _ => failure(unknown()),
     }
@@ -226,7 +277,16 @@ pub(super) async fn dispatch(
 async fn upload(
     service: &PublicationService,
     request: Request,
+    profile: ProgramPackageProfile,
 ) -> PublicationResult<PublishArtifactResult> {
+    let writer = match profile {
+        ProgramPackageProfile::Legacy4096 => service.writer.clone(),
+        ProgramPackageProfile::Entries8192V1 => service
+            .expanded_writer
+            .clone()
+            .ok_or_else(invalid_artifact)?,
+    };
+    let limits = service.profile_limits(profile);
     let permit = service.slots.clone().try_acquire_owned().map_err(|_| {
         error(
             PublicationErrorKind::Saturated,
@@ -277,7 +337,7 @@ async fn upload(
             .to_str()
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
-            .is_none_or(|n| n > service.limits.max_archive_bytes)
+            .is_none_or(|n| n > limits.max_archive_bytes)
     }) {
         return Err(error(PublicationErrorKind::TooLarge, "archive too large"));
     }
@@ -288,7 +348,7 @@ async fn upload(
         let frame = frame.map_err(|_| invalid_artifact())?;
         // HTTP trailers cannot replace or add the unique digest header.
         let bytes = frame.into_data().map_err(|_| invalid_artifact())?;
-        if bytes.len() > (service.limits.max_archive_bytes as usize).saturating_sub(archive.len()) {
+        if bytes.len() > (limits.max_archive_bytes as usize).saturating_sub(archive.len()) {
             return Err(error(PublicationErrorKind::TooLarge, "archive too large"));
         }
         archive.extend_from_slice(&bytes);
@@ -296,7 +356,6 @@ async fn upload(
     if archive.is_empty() {
         return Err(invalid_artifact());
     }
-    let writer = service.writer.clone();
     let span = tracing::Span::current();
     span.record("ledgence.program.id", program.id.as_str());
     span.record("ledgence.program.version", program.version.as_str());

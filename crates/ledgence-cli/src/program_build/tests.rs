@@ -48,6 +48,7 @@ impl Process for FakeDocker {
         let plan: serde_json::Value =
             serde_json::from_slice(&fs::read(mounts["/control"].join("build.json")).unwrap())
                 .unwrap();
+        assert_eq!(plan["limits"], json!(BUILD_PROFILE.limits()));
         let manifest = &plan["manifest"];
         let mut runtime = json!({"os": "linux", "arch": manifest["platform"]["arch"], "python": manifest["runtime"]["python"], "implementation":"cpython"});
         if self.outcome == "wrong-runtime" {
@@ -413,25 +414,74 @@ fn no_replace_rename_preserves_even_empty_racing_target() {
 #[test]
 fn receipt_bound_round_trips_supported_many_long_paths_and_rejects_oversize() {
     let fixture = Fixture::new();
+    // Saturate the accepted TOML budget with jointly valid fields, including
+    // maximally escaped display metadata. The target image uses only its
+    // allowed ASCII spelling and fills the remaining configuration budget.
+    let config_path = fixture.root.join("ledgence.toml");
+    let config = fs::read_to_string(&config_path)
+        .unwrap()
+        .replace("test-program", &"p".repeat(128))
+        .replace("1.0.0", &"v".repeat(128))
+        .replace(
+            "kind = \"workflow\"",
+            &format!(
+                "kind = \"unspecified\"\ndisplay_name = '{}'\ndescription = '{}'",
+                "\"".repeat(128),
+                "\"".repeat(4096)
+            ),
+        );
+    let image_padding = "i".repeat(65536 - config.len());
+    let config = config.replace(
+        "ledgence/ledgence@",
+        &format!("{image_padding}ledgence/ledgence@"),
+    );
+    assert_eq!(config.len(), 65536);
+    fs::write(&config_path, config).unwrap();
     let (config, _) = Config::read(&fixture.root.join("ledgence.toml")).unwrap();
     let manifest = config.manifest().unwrap();
-    let prefix = format!("{0}/{0}/{0}/{0}", "a".repeat(200));
-    let prepared_files: BTreeMap<_, _> = (0..4091)
+    let count = BUILD_PROFILE.limits().max_entries;
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let prefix = format!("{0}/{0}/{0}/{0}", "\"".repeat(200));
+    // Conservative independent map maxima deliberately overcount the source
+    // and dependency paths that can coexist. Every individual package path
+    // remains valid: <=1024 ASCII bytes and <=255 bytes per component.
+    let prepared_files: BTreeMap<_, _> = (0..count)
         .map(|i| {
             (
-                format!("{prefix}/{i:04}-{}", "b".repeat(195)),
-                format!("sha256:{}", "a".repeat(64)),
+                format!("{prefix}/{i:04}-{}", "\"".repeat(215)),
+                digest.clone(),
             )
         })
         .collect();
-    assert!(prepared_files.keys().all(|path| path.len() <= 1024));
-    let inputs = prepared_files
-        .iter()
-        .map(|(path, digest)| (format!("source/{path}"), digest.clone()))
+    assert!(
+        prepared_files
+            .keys()
+            .all(|path| path.len() == 1024
+                && path.split('/').all(|component| component.len() <= 255))
+    );
+    let prefix = format!("{0}/{0}/{0}/{0}", "a".repeat(200));
+    let mut inputs: BTreeMap<_, _> = (0..count - 1)
+        .map(|i| {
+            (
+                format!("source/{prefix}/{i:04}-{}", "b".repeat(215)),
+                digest.clone(),
+            )
+        })
         .collect();
+    assert!(
+        inputs
+            .keys()
+            .all(|path| path.len() == 1031 && !path.contains('"'))
+    );
+    inputs.insert("config".into(), digest.clone());
+    inputs.insert("requirements".into(), digest);
+    let prepared_directory = fixture
+        .root
+        .join(format!("{0}/{0}/{0}/prepared", "quoted\"".repeat(16)));
+    fs::create_dir_all(&prepared_directory).unwrap();
     let mut receipt = BuildReceipt {
         schema_version: 1,
-        prepared_directory: fixture.root.join("prepared"),
+        prepared_directory: prepared_directory.canonicalize().unwrap(),
         metadata: config.metadata(),
         descriptor: ProgramDescriptor {
             program: manifest.program.clone(),
@@ -444,10 +494,13 @@ fn receipt_bound_round_trips_supported_many_long_paths_and_rejects_oversize() {
         inputs,
         prepared_files,
     };
+    receipt.manifest.validate().unwrap();
+    receipt.metadata.validate().unwrap();
+    receipt.descriptor.validate().unwrap();
     let bytes = encode_receipt(&receipt).unwrap();
     assert!(
-        bytes.len() > 2 * 1024 * 1024,
-        "exercise the former unreadable-receipt boundary"
+        bytes.len() > 25 * 1024 * 1024,
+        "exercise quoted prepared paths beyond the former 16 MiB bound"
     );
     let path = fixture.root.join("large.build.json");
     fs::write(&path, &bytes).unwrap();
@@ -456,9 +509,82 @@ fn receipt_bound_round_trips_supported_many_long_paths_and_rejects_oversize() {
             .unwrap();
     assert_eq!(decoded.prepared_files, receipt.prepared_files);
     assert_eq!(decoded.inputs, receipt.inputs);
-    receipt.target_image = "x".repeat(MAX_BUILD_RECEIPT_BYTES as usize);
+    assert_eq!(decoded.prepared_directory, receipt.prepared_directory);
+    assert_eq!(decoded.target_image, receipt.target_image);
+    assert_eq!(json!(decoded.metadata), json!(receipt.metadata));
+    // The separately supplied output path has no portable theoretical bound;
+    // retain both bounded encoding and bounded receipt reading independently.
+    receipt.prepared_directory = PathBuf::from("\"".repeat(MAX_BUILD_RECEIPT_BYTES as usize / 2));
     assert!(encode_receipt(&receipt).is_err());
+    let oversized = fs::File::create(&path).unwrap();
+    oversized.set_len(MAX_BUILD_RECEIPT_BYTES + 1).unwrap();
+    drop(oversized);
+    assert!(files::read_regular(&path, MAX_BUILD_RECEIPT_BYTES).is_err());
 }
+
+#[test]
+fn embedded_preparation_reserves_manifest_and_counts_directories_at_the_profile_boundary() {
+    let fixture = Fixture::new();
+    let adapter = fixture.root.join("prepare.py");
+    fs::write(&adapter, include_bytes!("prepare.py")).unwrap();
+    let limits = fixture.root.join("limits.json");
+    fs::write(
+        &limits,
+        serde_json::to_vec(&BUILD_PROFILE.limits()).unwrap(),
+    )
+    .unwrap();
+    let output = std::process::Command::new(
+        std::env::var_os("LEDGENCE_PYTHON").unwrap_or_else(|| "python3".into()),
+    )
+    .args(["-I", "-B", "-c", PREPARATION_BOUNDARY])
+    .arg(&adapter)
+    .arg(&limits)
+    .arg(&fixture.root)
+    .output()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// Execute the real embedded adapter, remapping only its absolute mount paths
+// into a private host fixture. The runtime report uses this host interpreter;
+// application code is not imported and dependency/network installation is off.
+const PREPARATION_BOUNDARY: &str = r#"
+import json, platform, sys
+from pathlib import Path
+script, limits_path, root = map(Path, sys.argv[1:])
+limits = json.loads(limits_path.read_text())
+namespace = {'__name__': 'preparation_under_test'}
+exec(compile(script.read_text(), str(script), 'exec'), namespace)
+for total_entries in (limits['max_entries'], limits['max_entries'] + 1):
+    case = root / str(total_entries)
+    for directory in ('control', 'tmp', 'input/application', 'output'):
+        (case / directory).mkdir(parents=True)
+    application = case / 'input/application'
+    (application / 'program.py').write_text('raise AssertionError("application was imported")\n')
+    for i in range(total_entries - 2):
+        (application / f'entry-{i:05}').mkdir()
+    manifest = {'platform': {'os': sys.platform, 'arch': {'amd64': 'x86_64', 'arm64': 'aarch64'}.get(platform.machine().lower(), platform.machine().lower())},
+                'runtime': {'python': f'{sys.version_info.major}.{sys.version_info.minor}'}}
+    (case / 'control/build.json').write_text(json.dumps({'manifest': manifest, 'requirements': False, 'limits': limits}))
+    namespace['Path'] = lambda name: case / name.lstrip('/')
+    try:
+        namespace['main']()
+    except RuntimeError as error:
+        assert total_entries == limits['max_entries'] + 1, error
+        assert str(error) == 'prepared package exceeds entry limit', error
+        assert not (case / 'output/prepared/ledgence-program.json').exists()
+    else:
+        assert total_entries == limits['max_entries']
+        prepared = case / 'output/prepared'
+        assert len(list(prepared.rglob('*'))) == limits['max_entries']
+        assert json.loads((prepared / 'ledgence-program.json').read_text()) == manifest
+        assert (prepared / 'program.py').read_bytes() == (application / 'program.py').read_bytes()
+"#;
 
 #[tokio::test]
 async fn cancelled_or_expired_finalization_is_owned_until_finished_without_publication() {

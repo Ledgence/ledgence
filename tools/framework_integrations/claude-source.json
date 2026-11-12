@@ -1,0 +1,10 @@
+{
+  "version": "0.2.180",
+  "url": "https://files.pythonhosted.org/packages/f7/23/1483388a34190c4cb41790aa5201126e40d8ad90b363bf090abb273f4dc5/claude_agent_sdk-0.2.180.tar.gz",
+  "sha256": "1c0935c881a1b5232e6b6b894078ee79b315d75d449408af2202bddfa990a16c",
+  "filename": "claude_agent_sdk-0.2.180.tar.gz",
+  "size": 400210,
+  "license": "MIT",
+  "build_backend": "hatchling.build",
+  "bundled_cli": false
+}

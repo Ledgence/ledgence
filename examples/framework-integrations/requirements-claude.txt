@@ -1,0 +1,4 @@
+# Install ONLY from a reviewed source-only wheelhouse with --no-index.
+# The upstream default wheel may bundle a proprietary CLI; this example needs none.
+--no-index
+claude-agent-sdk==0.2.180

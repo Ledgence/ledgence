@@ -213,6 +213,68 @@ needed next. A new activation receives that explicit checkpoint and a new journa
 Python frames and ordinary locals are not restored. A local operation cannot
 start another durable operation, stage children, or call workflow control APIs.
 
+## Optional framework adapters (development)
+
+Matching development workers add three explicit modules under
+`ledgence.worker.integrations`; they are not in the published 0.9.0 package.
+The helper remains standard-library-only. Importing an adapter module does not
+load its optional SDK; applications prepare their exact dependencies separately.
+
+| Module | Exact application SDKs | Capabilities |
+| --- | --- | --- |
+| `pydantic_ai` | `pydantic-ai-slim==2.66.0` | Model, read-tool and discovery replay; reported usage |
+| `google_adk` | `google-adk==2.14.0`, `google-genai==2.34.0` | Model, read-tool and discovery replay; reported usage |
+| `claude_agent_sdk` | `claude-agent-sdk==0.2.180` | Whole-run result replay; reported usage; native stop request |
+
+Use these helpers directly in a protocol-3 workflow controller with a
+`WorkflowContext`. An ordinary task may run a native framework normally, but does
+not acquire workflow controls or accepted-call replay. Never wrap the helper in
+another `ctx.local`/`ctx.operation`, and keep workflow composition, approvals and
+protected writes outside SDK callbacks. Workflow controls require the active
+invocation controller scope; caught nested-control attempts still poison the
+adapter, and empty/reset async callback contexts do not grant authority. These
+checks do not make operator-trusted Python an adversarial-code sandbox.
+
+Shared types include `AgentRunSpec(key, version, configuration, branch="main",
+limits=AgentLimits())`, `AgentCapability`, `AgentResult` and bounded typed errors.
+PydanticAI and ADK expose
+`run(ctx, *, spec, prompt, factory, require=frozenset())`; Claude also requires an
+explicit `runtime=ExternalCli(...)` or `CustomTransport(...)`. Call once for each
+context/key/branch and retain its awaitable; duplicate occurrences fail. The
+manifest is acknowledged before a synchronous, construction-only factory runs.
+The factory uses copied `bindings.configuration` and returns fresh owned objects.
+
+PydanticAI factories return a named static-model Agent with `bindings.durability`
+and `bindings.read_tool(...)`. ADK factories return an LlmAgent with
+`bindings.model(..., close=...)` and declared read tools; its explicit closer is a
+zero-argument async callable or `None` for a resource-free model. Both expose
+`bindings.catalog(...)` for journaled descriptor discovery and
+`bindings.transform(...)` for declared pure tool transforms. Claude factories
+return `bindings.client(...)` matching `spec.configuration["options"]`; accepted
+whole-run replay opens no client. No helper installs a provider or downloads a CLI.
+
+Operation profiles default to ceilings of 4 model turns, 8 tools, 4 discoveries
+and 4 parallel calls. The shared adapter reservation budget is 64 records/192 KiB;
+operation input is at most 16 KiB and codec output 8 KiB. Deadlines default to
+60 seconds, up to five minutes. Claude rejects per-model/tool/discovery limits;
+its complete terminal/usage/lifecycle envelope shares the 8 KiB output bound.
+Other workflow journal limits still apply.
+
+Cancellation stops admission and the separate SDK driver, then retains in-flight
+operations and their resource owner through cleanup. A deadline is not a hard
+external-stop guarantee. Replayed usage is prior evidence, not a new charge;
+missing counts and costs stay unknown. No profile provides native session resume,
+partial-token checkpoints, automatic approval bridging or exactly-once effects.
+Legacy PydanticAI dynamic prompt/instruction/output-validator decorators are
+outside the trusted-factory profile and cannot be exhaustively inspected through
+its public API. Source-only Claude transport checks do not establish live
+CLI/provider or external-process termination behavior.
+
+See the [full adapter contract](../../docs/agent-integrations.md),
+[framework guide](https://docs.ledgence.com/how-to/agent-frameworks) and
+[equal-scope framework examples](../../examples/framework-integrations/README.md)
+for factory construction, schemas, limits, recovery and explicit optional SDK setup.
+
 ## Durable approvals
 
 Protocol 3 workflows can return `ctx.request_approval(key, action=...,

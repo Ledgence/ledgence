@@ -1,14 +1,17 @@
 //! Local packaging and HTTP publication are distinct from building and catalog registration.
 mod receipt;
 use crate::args::invalid;
-use ledgence_adapter_artifact::{ArtifactLimits, PackedProgram, pack_directory, publish_directory};
+use ledgence_adapter_artifact::{
+    ArtifactLimits, PackedProgram, ZipProgramPackageInspector, pack_directory, publish_directory,
+};
 use ledgence_adapter_http::{HttpCredentials, HttpProgramPublisher};
 use ledgence_orchestration_api::{
     ContractError, Result,
     console::{ConsoleProgramKind, ProgramDisplayMetadata, RegisterProgram, RegisterProgramReply},
 };
 use ledgence_worker_api::{
-    ProgramDescriptor, PublicationError, PublicationErrorKind, PublishArtifactResult,
+    ProgramDescriptor, ProgramPackageProfile, PublicationError, PublicationErrorKind,
+    PublishArtifactResult,
 };
 use receipt::{Phase, Session};
 use serde::{Deserialize, Serialize};
@@ -54,8 +57,12 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
                 None,
             );
         }
-        return match publish_directory(source, store, &ArtifactLimits::default())
-            .map_err(worker_error)
+        return match publish_directory(
+            source,
+            store,
+            &ArtifactLimits::for_profile(ProgramPackageProfile::Entries8192V1),
+        )
+        .map_err(worker_error)
         {
             Ok(descriptor) => output(&descriptor),
             Err(error) => {
@@ -98,7 +105,7 @@ pub fn run(mut arguments: Vec<String>) -> ExitCode {
                 if !capabilities.enabled { return Err(invalid("server publication is disabled; enable --allow-program-publication with an instance configuration or use --store")); }
                 if register && !capabilities.registration_enabled { return Err(invalid("server catalog registration is unavailable")); }
                 let source = std::fs::canonicalize(source).map_err(io_error)?;
-                let packed = pack_directory(&source, &ArtifactLimits::default()).map_err(worker_error)?;
+                let packed = pack_directory(&source, &ArtifactLimits::for_profile(ProgramPackageProfile::Entries8192V1)).map_err(worker_error)?;
                 let mut metadata = if crate::program_build::receipt_path(&source).exists() {
                     crate::program_build::load_receipt(&source, &packed.descriptor)?.metadata
                 } else { ProgramDisplayMetadata::default() };
@@ -408,7 +415,8 @@ fn publisher(
     credentials: Option<&HttpCredentials>,
 ) -> Result<HttpProgramPublisher> {
     let observed = request_id.clone();
-    let mut publisher = HttpProgramPublisher::new(server).map_err(publication_error)?;
+    let mut publisher = HttpProgramPublisher::new(server, Arc::new(ZipProgramPackageInspector))
+        .map_err(publication_error)?;
     if let Some(credentials) = credentials {
         publisher = publisher
             .with_credentials(credentials.clone())

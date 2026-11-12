@@ -397,6 +397,7 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
         };
         let mut set_cookie = None;
         let mut artifact_response = None;
+        let mut publication_profile = None;
         let (status, body, code) = match route {
             None => (
                 404,
@@ -443,7 +444,9 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
                 }
             }
             Some(_) if publication::is_route(route_label) => {
-                publication::dispatch(&server, request).await
+                let reply = publication::dispatch(&server, request).await;
+                publication_profile = reply.profile;
+                reply.response
             }
             Some(route) => {
                 let result = if server.stopping.load(Ordering::Acquire) {
@@ -546,6 +549,14 @@ async fn handle(State(server): State<Server>, request: Request) -> Response {
             );
         }
         response.headers_mut().extend(artifact_headers);
+        if let Some(profile) = publication_profile
+            && let Some(value) = crate::program_package_profile::value(profile)
+        {
+            response.headers_mut().insert(
+                crate::program_package_profile::HEADER,
+                HeaderValue::from_static(value),
+            );
+        }
         if status == 405 {
             response.headers_mut().insert(
                 header::ALLOW,

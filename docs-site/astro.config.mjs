@@ -63,6 +63,7 @@ export default defineConfig({
         { label: 'Share model and tool capacity', slug: 'how-to/control-resource-capacity' },
       ] },
       { label: 'Integrations and examples', collapsed: true, items: [
+        { label: 'Agent frameworks (development)', slug: 'how-to/agent-frameworks' },
         { label: 'Connect an MCP client', slug: 'how-to/connect-mcp' },
         { label: 'Build a tested change with Codex', slug: 'tutorials/codex-change-review' },
       ] },

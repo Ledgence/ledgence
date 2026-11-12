@@ -9,7 +9,7 @@ import sys
 import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from program_fixture import prepare_package
-from console_bundle import smoke as console_smoke
+from release.console_bundle import smoke as console_smoke
 
 
 def task_fixture(program):
@@ -52,10 +52,18 @@ def main():
         # Release qualification runs on the selected native host. Prepare only
         # the dependency-free starter's source; production cross-target builds
         # use the explicit target configured in ledgence.toml.
+        imports = """import importlib, pathlib, sys
+import ledgence.worker
+for name in ("pydantic_ai", "google_adk", "claude_agent_sdk"):
+    module = importlib.import_module("ledgence.worker.integrations." + name)
+    assert pathlib.Path(module.__file__).resolve() == pathlib.Path(ledgence.worker.__file__).resolve().parent / "integrations" / (name + ".py")
+assert not {"pydantic_ai", "google.adk", "claude_agent_sdk"}.intersection(sys.modules)
+"""
         package = prepare_package(temporary / "package", created["program"]["id"],
                                   created["program"]["version"],
                                   (Path(created["directory"]) / "program.py").read_text(),
-                                  python=sys.executable, protocol=3)
+                                  python=sys.executable, protocol=3, handler="qualification:handle")
+        (package / "qualification.py").write_text(imports + "\nfrom program import handle\n")
         tasks = task_fixture(created["program"])
         task_path = temporary / "tasks.json"
         task_path.write_text(json.dumps(tasks))

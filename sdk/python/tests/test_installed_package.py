@@ -48,6 +48,28 @@ class InstalledPackageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(importlib.util.find_spec("ledgence.client"))
         self.assertNotIn("opentelemetry", sys.modules)
         self.assertNotIn("aiohttp", sys.modules)
+        for name in ("pydantic_ai", "google_adk", "claude_agent_sdk"):
+            module = importlib.import_module("ledgence.worker.integrations." + name)
+            self.assertEqual(Path(module.__file__).resolve(), self.helper / "integrations" / (name + ".py"))
+        for name in ("pydantic_ai", "google.adk", "claude_agent_sdk"):
+            self.assertNotIn(name, sys.modules)
+
+    async def test_optional_integrations_need_explicit_installed_frameworks(self):
+        from ledgence.worker.integrations import AgentRunSpec, AgentDependencyError
+        async def no_rpc(*args): self.fail("missing SDK sent a journal request")
+        context = self.workflow.WorkflowContext(activation(), no_rpc)
+        self.addAsyncCleanup(context._finish, cancel=True)
+        for name in ("pydantic_ai", "google_adk", "claude_agent_sdk"):
+            module = importlib.import_module("ledgence.worker.integrations." + name)
+            kwargs = {}
+            configuration = {}
+            if name == "claude_agent_sdk":
+                configuration = {"options": {"model": "unused-fixture", "tools": []}}
+                kwargs["runtime"] = module.ExternalCli(sys.executable, "unused-fixture")
+            with self.assertRaises(AgentDependencyError):
+                module.run(context, spec=AgentRunSpec(name, "1", configuration), prompt="hello",
+                           factory=lambda _: self.fail("missing SDK invoked factory"), **kwargs)
+        self.assertEqual(context._owned_tasks(), [])
 
     def test_invocation_and_optional_tracing_are_inactive_without_runtime(self):
         with self.assertRaisesRegex(RuntimeError, "no Ledgence invocation"):
@@ -197,8 +219,9 @@ class InstalledPackageTests(unittest.IsolatedAsyncioTestCase):
             root = Path(directory).resolve()
             helper = root / "helper/ledgence/worker"
             shutil.copytree(self.helper, helper, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-            for path in helper.iterdir():
-                self.assertEqual(path.read_bytes(), (self.helper / path.name).read_bytes())
+            for path in helper.rglob("*"):
+                if path.is_file():
+                    self.assertEqual(path.read_bytes(), (self.helper / path.relative_to(helper)).read_bytes())
             program = root / "program"
             program.mkdir()
             (program / "program.py").write_text('''import asyncio, os
@@ -207,6 +230,9 @@ import ledgence, ledgence.worker
 from ledgence.worker import current_invocation, get_logger, register_shutdown
 from ledgence.worker.workflow import workflow_context, WorkflowError
 assert ledgence.__spec__.origin is None
+from ledgence.worker.integrations import pydantic_ai, google_adk, claude_agent_sdk
+for module in (pydantic_ai,google_adk,claude_agent_sdk):
+    assert Path(module.__file__).resolve().is_relative_to(Path(ledgence.worker.__file__).resolve().parent)
 assert Path(ledgence.worker.__file__).resolve().is_relative_to(Path(__file__).resolve().parent.parent / "helper")
 logger = get_logger("installed-runtime")
 register_shutdown(lambda: print("shutdown-callback"))

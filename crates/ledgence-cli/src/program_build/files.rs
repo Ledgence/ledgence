@@ -1,4 +1,4 @@
-use super::{config::Config, invalid, operational};
+use super::{BUILD_PROFILE, config::Config, invalid, operational};
 use ledgence_orchestration_api::Result;
 use ledgence_worker_api::ProgramManifest;
 use sha2::{Digest, Sha256};
@@ -9,9 +9,9 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-const MAX_FILE: u64 = 64 * 1024 * 1024;
-const MAX_TOTAL: u64 = 256 * 1024 * 1024;
-const MAX_ENTRIES: usize = 4096;
+const MAX_FILE: u64 = BUILD_PROFILE.limits().max_file_bytes;
+const MAX_TOTAL: u64 = BUILD_PROFILE.limits().max_expanded_bytes;
+const MAX_ENTRIES: usize = BUILD_PROFILE.limits().max_entries as usize;
 
 pub(super) fn digest(bytes: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(bytes))

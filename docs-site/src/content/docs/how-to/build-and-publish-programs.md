@@ -236,8 +236,17 @@ and persistence budget. A timeout cannot release capacity while its admitted
 write is still running. JSON control operations keep their existing deadline.
 
 `GET /v1/programs/publication-capabilities` reports whether uploads and catalog
-registration are enabled, their limits and immutable mode. An older server is
-reported as incompatible; use `--store` or an explicit server upgrade.
+registration are enabled, their limits and immutable mode. A server without this
+route is reported as incompatible; use `--store` or an explicit server upgrade.
+
+**In development:** updated components support a negotiated 8,192-entry profile,
+including directories and the manifest. All other package byte limits stay the
+same. Upgrade every worker that can receive the program before using a larger
+package; 0.9.0 workers reject it. Existing smaller packages remain compatible.
+The updated CLI checks the complete ZIP against the server's selected limits
+before uploading. A 0.9.0 server selects the legacy 4,096-entry profile, so a larger
+package fails before PUT. Resume retains and reinspects the original bytes; it
+does not prune dependencies. This extension is not in the published 0.9.0 release.
 
 The [full configuration, binary API, error and recovery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-publication.md)
 describes typed failures, descriptor binding, temporary files and adapter

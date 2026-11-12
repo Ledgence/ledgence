@@ -152,6 +152,10 @@ if not pathlib.Path(ledgence.worker.__file__).resolve().is_relative_to(helper):
 try:current_invocation()
 except RuntimeError:pass
 else:raise SystemExit('unexpected invocation outside runtime')
+for name in ('pydantic_ai', 'google_adk', 'claude_agent_sdk'):
+    module=importlib.import_module('ledgence.worker.integrations.'+name)
+    assert pathlib.Path(module.__file__).resolve() == helper/'ledgence/worker/integrations'/(name+'.py')
+assert not {'pydantic_ai','google.adk','claude_agent_sdk'}.intersection(sys.modules)
 print('Verified separate client/worker namespace portions:', sys.argv[2])
 """
     for order in ("client-first", "worker-first"):
@@ -175,6 +179,11 @@ assert ledgence.__spec__.origin is None
 assert Path(ledgence.client.__file__).resolve().is_relative_to(root)
 assert not Path(ledgence.worker.__file__).resolve().is_relative_to(root)
 assert AsyncClient.__module__ == 'ledgence.client.client'
+import importlib, sys
+for name in ('pydantic_ai', 'google_adk', 'claude_agent_sdk'):
+    module = importlib.import_module('ledgence.worker.integrations.' + name)
+    assert Path(module.__file__).resolve() == Path(ledgence.worker.__file__).resolve().parent / 'integrations' / (name + '.py')
+assert not {'pydantic_ai', 'google.adk', 'claude_agent_sdk'}.intersection(sys.modules)
 try:
     current_invocation()
 except RuntimeError:

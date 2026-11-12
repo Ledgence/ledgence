@@ -37,6 +37,9 @@ class StarterSmokeTests(unittest.TestCase):
                     self.assertEqual((package / "program.py").read_text(), generated)
                     manifest = json.loads((package / "ledgence-program.json").read_text())
                     self.assertEqual(manifest["runtime"]["protocol"], 3)
+                    self.assertEqual(manifest["handler"], "qualification:handle")
+                    self.assertIn("from program import handle", (package / "qualification.py").read_text())
+                    self.assertIn("ledgence.worker.integrations.", (package / "qualification.py").read_text())
                     return "{}"
                 if command[1:3] == ["worker", "run"]:
                     tasks = json.loads(Path(command[command.index("--tasks") + 1]).read_text())
@@ -49,7 +52,7 @@ class StarterSmokeTests(unittest.TestCase):
 
             manifest = {"schema_version": 1, "program": {"id": "smoke-task", "version": "0.1.0"},
                         "runtime": {"kind": "python", "python": "3.14", "protocol": 3},
-                        "handler": "program:handle", "platform": {"os": "linux", "arch": "x86_64"}}
+                        "handler": "qualification:handle", "platform": {"os": "linux", "arch": "x86_64"}}
             with patch.object(sys, "argv", ["smoke.py", "--directory", str(bundle)]), \
                     patch.object(smoke.subprocess, "check_output", side_effect=run), \
                     patch("program_fixture.host_manifest", return_value=manifest), \
