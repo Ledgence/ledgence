@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Freeze candidate jobs/artifacts and verify promotion proof across reruns (MIT)."""
 import argparse
+from datetime import datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,78 @@ CONSOLE_STEPS = (
 )
 FRAMEWORK_STEPS = ('Verify candidate source and runtime before framework execution',
                    'Qualify extracted candidate SDK and worker recovery', 'Retain candidate framework qualification')
+SNAPSHOT_FORMAT = 2
+STEP_FIELDS = ('number', 'name', 'status', 'conclusion', 'started_at', 'completed_at')
+EXECUTION_FIELDS = ('run_id', 'head_sha', 'name', 'status', 'conclusion', 'runner_id', 'runner_name',
+                    'runner_group_id', 'runner_group_name')
+
+
+def timestamp(value):
+    require(isinstance(value, str) and re.fullmatch(
+        r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)', value),
+        'invalid UTC execution timestamp')
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    require(parsed.utcoffset() == timedelta(0), 'UTC execution timestamp required')
+    return parsed
+
+
+def execution_fingerprint(job):
+    start, end = timestamp(job.get('started_at')), timestamp(job.get('completed_at'))
+    require(start <= end, 'reversed successful execution window')
+    steps = job.get('steps')
+    require(isinstance(steps, list) and 0 < len(steps) <= 1000, 'missing or excessive execution steps')
+    numbers, normalized = set(), []
+    for step in steps:
+        number = step.get('number')
+        require(type(number) is int and number > 0 and number not in numbers, 'ambiguous execution steps')
+        numbers.add(number)
+        first, last = step.get('started_at'), step.get('completed_at')
+        if first is None or last is None:
+            require(first is None and last is None and step.get('conclusion') == 'skipped', 'missing execution step timestamps')
+        else:
+            first, last = timestamp(first), timestamp(last)
+            require(start <= first <= last <= end, 'execution step outside job window')
+        normalized.append((number, step.get('name'), step.get('status'), step.get('conclusion'), first, last))
+    identity = [job.get(key) for key in EXECUTION_FIELDS]
+    # Hosted copies rewrite the default runner-group ID from 0 to null. Keep
+    # its raw value in the frozen audit, but compare those two forms equally.
+    group_index = EXECUTION_FIELDS.index('runner_group_id')
+    if type(identity[group_index]) is int and identity[group_index] == 0:
+        identity[group_index] = None
+    return tuple(identity), start, end, sorted(normalized)
+
+
+def producing_job(latest, jobs):
+    require(latest.get('status') == 'completed' and latest.get('conclusion') == 'success',
+            'latest required execution did not pass')
+    fingerprint = execution_fingerprint(latest)
+    # GitHub copies successful records into later attempts with new IDs but
+    # unchanged execution times/steps. Only the first identical execution ran.
+    matches = [job for job in jobs if job['name'] == latest['name']
+               and job.get('status') == 'completed' and job.get('conclusion') == 'success'
+               and job['run_attempt'] <= latest['run_attempt'] and execution_fingerprint(job) == fingerprint]
+    require(matches, 'missing original producing execution')
+    attempt = min(job['run_attempt'] for job in matches)
+    originals = [job for job in matches if job['run_attempt'] == attempt]
+    require(len(originals) == 1, 'ambiguous original producing execution')
+    return originals[0]
+
+
+def execution_binding(latest, producer):
+    require(all(type(value) is int and value > 0 for value in
+                (latest.get('id'), producer.get('id'), producer.get('run_attempt'))), 'invalid producing execution identity')
+    return dict(latest_job_id=latest['id'], producer_job_id=producer['id'], producing_attempt=producer['run_attempt'])
+
+
+def execution_artifact(artifacts, prefix, latest, producer, run_id, source):
+    start, end = timestamp(latest['started_at']), timestamp(latest['completed_at'])
+    pattern = re.compile(re.escape(prefix) + r'([1-9][0-9]*)')
+    eligible = [artifact for artifact in artifacts if pattern.fullmatch(artifact.get('name', ''))
+                and start <= timestamp(artifact.get('created_at')) <= end]
+    require(len(eligible) == 1, f'missing or ambiguous artifact in producing execution: {prefix}')
+    expected = prefix + str(producer['run_attempt'])
+    require(eligible[0]['name'] == expected, 'artifact attempt does not identify original producing execution')
+    return choose_artifact(artifacts, expected, run_id, source, producer)
 
 
 def gh(endpoint):
@@ -61,7 +134,8 @@ def choose_artifact(artifacts, name, run_id, source, job):
     run = artifact.get('workflow_run', {})
     require(run.get('id') == run_id and run.get('head_sha') == source, 'artifact belongs to a different run/source')
     require(type(artifact.get('id')) is int and artifact['id'] > 0, 'invalid artifact ID')
-    require(job['started_at'] <= artifact.get('created_at', '') <= job['completed_at'], 'artifact outside qualifying job execution')
+    require(timestamp(job['started_at']) <= timestamp(artifact.get('created_at')) <= timestamp(job['completed_at']),
+            'artifact outside qualifying job execution')
     return artifact
 
 
@@ -102,31 +176,51 @@ def snapshot(repository, run_id, fetch=None):
             matches = [s for s in job.get('steps', []) if s.get('name') == step]
             require(len(matches) == 1 and matches[0].get('status') == 'completed' and matches[0].get('conclusion') == 'success',
                     f'required candidate step did not pass: {step}')
-    console = latest[CONSOLE_JOB]
-    selected = {'console': choose_artifact(artifacts, f'{CONSOLE_ARTIFACT}-{console["run_attempt"]}', run_id, source, console)}
-    for framework in FRAMEWORKS:
-        job = latest[f'Candidate framework recovery ({framework})']
-        selected[framework] = choose_artifact(artifacts, artifact_name(framework, source, job['run_attempt']), run_id, source, job)
+    selected, bindings = {}, {}
+    for role in ('console', *FRAMEWORKS):
+        job = latest[CONSOLE_JOB if role == 'console' else f'Candidate framework recovery ({role})']
+        producer = producing_job(job, jobs)
+        prefix = CONSOLE_ARTIFACT + '-' if role == 'console' else artifact_name(role, source, '')
+        selected[role] = execution_artifact(artifacts, prefix, job, producer, run_id, source)
+        bindings[role] = execution_binding(job, producer)
     # Preserve earlier failed/cancelled executions as evidence, but qualify only
     # the latest execution of each required job. Freeze only stable API fields.
-    job_fields = ('id', 'run_id', 'run_attempt', 'name', 'head_sha', 'status', 'conclusion', 'started_at', 'completed_at')
+    job_fields = ('id', 'run_attempt', 'started_at', 'completed_at', *EXECUTION_FIELDS)
     artifact_fields = ('id', 'name', 'expired', 'created_at', 'expires_at', 'size_in_bytes', 'digest', 'workflow_run')
     normalized_jobs = []
     for job in jobs:
         record = {key: job.get(key) for key in job_fields}
-        record['steps'] = [{key: s.get(key) for key in ('number', 'name', 'status', 'conclusion')} for s in job.get('steps', [])]
+        record['steps'] = [{key: s.get(key) for key in STEP_FIELDS} for s in job.get('steps', [])]
         normalized_jobs.append(record)
     normalized_artifacts = [{key: a.get(key) for key in artifact_fields} for a in artifacts]
-    return dict(format=1, repository=repository, run_id=run_id, run_attempt=attempt, source_sha=source,
+    return dict(format=SNAPSHOT_FORMAT, repository=repository, run_id=run_id, run_attempt=attempt, source_sha=source,
                 workflow=run['path'], status=run['status'], conclusion=run['conclusion'],
                 jobs=sorted(normalized_jobs, key=lambda j: j['id']),
                 artifacts=sorted(normalized_artifacts, key=lambda a: a['id']),
-                selected={key: value['id'] for key, value in selected.items()})
+                selected={key: value['id'] for key, value in selected.items()}, executions=bindings)
 
 
 def validate_downloads(frozen, downloads, expected_sha256, version):
+    require(type(frozen.get('format')) is int and frozen['format'] == SNAPSHOT_FORMAT and isinstance(frozen.get('executions'), dict)
+            and set(frozen['executions']) == {'console', *FRAMEWORKS}, 'regenerate candidate snapshot with producing executions')
     require(re.fullmatch(r'[a-f0-9]{64}', expected_sha256) is not None, 'invalid expected archive digest')
     selected = frozen['selected']
+    require(isinstance(selected, dict) and set(selected) == {'console', *FRAMEWORKS}
+            and all(type(value) is int and value > 0 for value in selected.values()), 'invalid selected artifact roles or IDs')
+    producers = {}
+    for role in ('console', *FRAMEWORKS):
+        name = CONSOLE_JOB if role == 'console' else f'Candidate framework recovery ({role})'
+        jobs = [job for job in frozen['jobs'] if job['name'] == name]
+        require(jobs, 'missing frozen required execution')
+        latest = max(jobs, key=lambda job: job['run_attempt'])
+        producer = producing_job(latest, jobs)
+        binding = frozen['executions'][role]
+        require(isinstance(binding, dict) and all(type(value) is int and value > 0 for value in binding.values())
+                and binding == execution_binding(latest, producer), 'frozen producing execution mismatch')
+        prefix = CONSOLE_ARTIFACT + '-' if role == 'console' else artifact_name(role, frozen['source_sha'], '')
+        artifact = execution_artifact(frozen['artifacts'], prefix, latest, producer, frozen['run_id'], frozen['source_sha'])
+        require(selected[role] == artifact['id'], 'selected producing artifact mismatch')
+        producers[role] = producer
     by_id = {a['id']: a for a in frozen['artifacts']}
     console = by_id[selected['console']]
     with tempfile.TemporaryDirectory(prefix='ledgence-candidate-proof-') as temporary:
@@ -138,8 +232,7 @@ def validate_downloads(frozen, downloads, expected_sha256, version):
         require({p.name for p in directory.iterdir()} == {'qualification.json', 'sdk-summary.json', 'worker-summary.json'}, 'unexpected proof artifact contents')
         receipt = read_json(directory / 'qualification.json')
         artifact = by_id[selected[framework]]
-        jobs = [j for j in frozen['jobs'] if j['name'] == f'Candidate framework recovery ({framework})']
-        job = max(jobs, key=lambda j: j['run_attempt'])
+        job = producers[framework]
         require(receipt.get('format') == 1 and receipt.get('framework') == framework
                 and receipt.get('repository') == frozen['repository'] and receipt.get('run_id') == frozen['run_id']
                 and receipt.get('run_attempt') == job['run_attempt'], 'framework receipt execution mismatch')
@@ -152,12 +245,15 @@ def validate_downloads(frozen, downloads, expected_sha256, version):
         original_jobs = [j for j in frozen['jobs'] if j['name'] == CONSOLE_JOB
                          and qualified_artifact.get('name') == f'{CONSOLE_ARTIFACT}-{j["run_attempt"]}']
         require(len(original_jobs) == 1 and original_jobs[0]['conclusion'] == 'success', 'qualified archive lacks a successful Console build')
+        require(producing_job(original_jobs[0], frozen['jobs'])['id'] == original_jobs[0]['id'],
+                'qualified archive attempt is only a copied Console execution')
         choose_artifact(frozen['artifacts'], qualified_artifact['name'], frozen['run_id'], frozen['source_sha'], original_jobs[0])
         for label in ('sdk', 'worker'):
             require(receipt.get(label + '_summary_sha256') == checksum(directory / (label + '-summary.json')), 'framework summary hash mismatch')
         sdk, worker = read_json(directory / 'sdk-summary.json'), read_json(directory / 'worker-summary.json')
         validate_reports(sdk, worker, identity, framework)
         bindings[framework] = dict(proof_artifact_id=artifact['id'], qualifying_attempt=job['run_attempt'],
+            latest_job_id=frozen['executions'][framework]['latest_job_id'], producer_job_id=job['id'],
             qualified_candidate_artifact_id=candidate['artifact_id'], selected_candidate_artifact_id=console['id'],
             identical_archive_sha256=identity['archive_sha256'], receipt_sha256=checksum(directory / 'qualification.json'))
     return dict(format=1, repository=frozen['repository'], run_id=frozen['run_id'], run_attempt=frozen['run_attempt'],

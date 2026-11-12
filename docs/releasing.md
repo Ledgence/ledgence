@@ -333,16 +333,25 @@ The candidate's integration and capacity qualification must already be complete.
 Before promotion, `tools/release/candidate_preflight.py` snapshots the successful
 candidate run's paginated job and artifact metadata. It requires every applicable
 job and the Console upgrade/profile/S3 steps, then freezes immutable artifact IDs
-using each successful job's own attempt. It downloads the selected archive and
-all three framework receipts separately and verifies their complete byte
-bindings. A framework-only rerun can reuse earlier receipts only when they bind
-the exact selected archive; a new binary or differently packaged archive rejects
+and their producing executions. GitHub may copy a successful job into a later
+attempt with a new job ID and attempt number while keeping its original execution
+times. Preflight requires the latest job to pass, then matches the artifact to
+the earliest identical successful execution using its name, source, timestamps
+and step results. It records both the latest job and the original producer;
+missing or ambiguous producer history fails qualification. Historical failed or
+cancelled records remain in the evidence and cannot qualify an artifact.
+
+It downloads the selected archive and all three framework receipts separately
+and verifies their complete byte bindings. A framework-only rerun can reuse
+earlier receipts only when they bind the exact selected archive; a new binary or differently packaged archive rejects
 stale receipts even at the same source SHA. Different upload IDs are allowed only
 for a byte-identical complete archive, with both IDs retained in the evidence.
 
 Immediately before `promote.py`, the workflow rechecks the frozen run, jobs and
 artifacts. A new rerun or changed selection fails preflight and requires a fresh
 snapshot; it cannot silently fall back to an artifact with a matching name.
+Regenerate snapshots made by older preflight versions: verification requires the
+producing-execution bindings in snapshot format 2.
 These checks retain the source-equivalent ancestor/tree release-merge rule above.
 
 Run the promotion regression tests with
