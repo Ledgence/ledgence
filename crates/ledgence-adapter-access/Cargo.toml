@@ -16,7 +16,7 @@ getrandom.workspace = true
 subtle.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "=1.1.4", features = ["fs"] }
+rustix = { version = "=1.1.6", features = ["fs"] }
 
 [dev-dependencies]
 serde_json.workspace = true

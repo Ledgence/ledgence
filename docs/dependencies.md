@@ -53,7 +53,7 @@ published license files were inspected; normal release notice generation must
 retain the selected terms for included components. No license allowlist change
 was needed.
 
-`rustix 1.1.4` was already locked and is now a direct CLI dependency with its
+`rustix`, currently pinned to `1.1.6`, is a direct CLI dependency with its
 filesystem feature for no-clobber prepared-directory publication on Linux and
 macOS. Its reviewed MIT alternative remains applicable. Existing ZIP, hashing,
 HTTP and temporary-file dependencies implement immutable artifact publication;
@@ -107,6 +107,24 @@ No package, advisory exception, or license allowance is added. Release notice
 generation retains the original package license files, and each release must
 qualify its own complete dependency graph. These development selections do not
 change the contents or availability of previously published releases.
+
+### Rustix maintenance in development
+
+The development lockfile selects `rustix 1.1.6` for
+[RUSTSEC-2026-0486](https://rustsec.org/advisories/RUSTSEC-2026-0486.html), issued
+November 11, 2026. The patch corrects extended-attribute reads with zero-length
+buffers. Ledgence does not call those APIs; its direct uses are credential-file
+open flags and atomic, no-overwrite directory publication. The existing indirect
+consumer, `tempfile`, also does not call the affected APIs. The dependency gate
+still requires a corrected version for the complete resolved graph.
+
+The exact published archive matches its locked SHA-256. Its copyright and three
+license files are byte-identical to `1.1.4`; the existing MIT selection and release
+notice handling remain applicable. Rustix raises its minimum Rust version to 1.65
+and some dependency minimums, all satisfied by Ledgence's Rust 1.98 requirement
+and existing lockfile. Only rustix's resolved version and checksum change. No
+advisory suppression, license exception or additional dependency is introduced.
+Previously published Ledgence artifacts retain their original dependencies.
 
 ## License review
 
@@ -407,7 +425,7 @@ policy and feature isolation without advisory exceptions.
 
 The development access adapter uses existing locked dependencies `getrandom 0.4.3` (MIT OR Apache-2.0), `sha2 0.10.9` (MIT OR Apache-2.0), and `subtle 2.6.1`
 (BSD-3-Clause) for operating-system randomness, verifiers and constant-time
-comparison. Access and HTTP credential-file readers use the existing `rustix 1.1.4`
+comparison. Access and HTTP credential-file readers use the existing `rustix 1.1.6`
 (Apache-2.0 OR MIT) filesystem flags on Unix. Distribution notices continue to
 include these dependencies. Core orchestration contracts expose a verifier port
 and validated principal. The implementation performs bounded in-memory checks
