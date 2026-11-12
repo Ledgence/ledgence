@@ -86,9 +86,26 @@ class CandidateProofTests(unittest.TestCase):
     def job(self, name, job_id, attempt=1, conclusion='success'):
         steps = preflight.CONSOLE_STEPS if name == preflight.CONSOLE_JOB else preflight.FRAMEWORK_STEPS if name.startswith('Candidate framework') else ()
         return dict(id=job_id, name=name, run_id=55, head_sha=self.source, run_attempt=attempt,
+                    runner_id=700 + job_id, runner_name=f'runner-{job_id}', runner_group_id=0, runner_group_name='hosted',
                     status='completed', conclusion=conclusion, started_at=f'2026-11-12T0{attempt}:00:00Z',
                     completed_at=f'2026-11-12T0{attempt}:10:00Z',
-                    steps=[dict(number=i + 1, name=s, status='completed', conclusion='success') for i, s in enumerate(steps)])
+                    steps=[dict(number=i + 1, name=s, status='completed', conclusion='success',
+                                started_at=f'2026-11-12T0{attempt}:00:00Z', completed_at=f'2026-11-12T0{attempt}:10:00Z')
+                           for i, s in enumerate(steps)])
+
+    def copy_attempt(self, attempt, executed):
+        """Model GitHub's new IDs/attempts for both executed and copied jobs."""
+        latest = {name: max((j for j in self.jobs if j['name'] == name), key=lambda j: j['run_attempt'])
+                  for name in preflight.REQUIRED_JOBS}
+        for index, (name, job) in enumerate(latest.items()):
+            job_id = attempt * 100 + index + 10
+            if name in executed:
+                record = self.job(name, job_id, attempt, executed[name])
+            else:
+                record = dict(copy.deepcopy(job), id=job_id, run_attempt=attempt)
+                record['runner_group_id'] = None
+            self.jobs.append(record)
+        self.run['run_attempt'] = attempt
 
     def artifact(self, artifact_id, name, attempt=1):
         return dict(id=artifact_id, name=name, expired=False, created_at=f'2026-11-12T0{attempt}:05:00Z',
@@ -139,21 +156,136 @@ class CandidateProofTests(unittest.TestCase):
                              9 if framework == 'claude_agent_sdk' else 11)
 
     def test_framework_only_rerun_preserves_other_attempts(self):
-        self.run['run_attempt'] = 3
         name = 'Candidate framework recovery (pydantic_ai)'
-        self.jobs.extend([self.job(name, 70, 2, 'failure'), self.job(name, 71, 3)])
+        self.copy_attempt(2, {name: 'failure'})
+        self.copy_attempt(3, {name: 'success'})
         self.artifacts.append(self.artifact(201, preflight.artifact_name('pydantic_ai', self.source, 3), 3))
         self.proof('pydantic_ai', attempt=3)
         frozen = self.snapshot()
         result = self.validate(frozen)
         self.assertEqual(result['frameworks']['pydantic_ai']['qualifying_attempt'], 3)
         self.assertEqual(result['frameworks']['google_adk']['qualifying_attempt'], 1)
+        self.assertEqual(frozen['executions']['console']['producing_attempt'], 1)
+        self.assertNotEqual(frozen['executions']['console']['latest_job_id'], frozen['executions']['console']['producer_job_id'])
+        self.assertEqual(result['frameworks']['google_adk']['producer_job_id'], frozen['executions']['google_adk']['producer_job_id'])
         self.assertTrue(any(j['conclusion'] == 'failure' for j in frozen['jobs']))
 
     def rebuild_console(self):
-        self.run['run_attempt'] = 2
-        self.jobs.append(self.job(preflight.CONSOLE_JOB, 70, 2))
+        self.copy_attempt(2, {preflight.CONSOLE_JOB: 'success'})
         self.artifacts.append(self.artifact(200, preflight.CONSOLE_ARTIFACT + '-2', 2))
+
+    def test_copied_failure_with_reversed_times_is_preserved_after_recovery(self):
+        name = 'Candidate framework recovery (pydantic_ai)'
+        self.jobs = [job for job in self.jobs if job['name'] != name]
+        failed = self.job(name, 70, 1, 'cancelled')
+        failed.update(started_at='2026-11-12T02:00:00Z', completed_at='2026-11-12T01:10:00Z', steps=[], runner_id=None)
+        self.jobs.append(failed)
+        self.copy_attempt(2, {name: 'success'})
+        self.artifacts = [a for a in self.artifacts if a['id'] != 101]
+        self.artifacts.append(self.artifact(201, preflight.artifact_name('pydantic_ai', self.source, 2), 2))
+        self.proof('pydantic_ai', attempt=2)
+        frozen = self.snapshot()
+        self.validate(frozen)
+        self.assertIn(dict((key, value) for key, value in failed.items() if key in frozen['jobs'][0]), frozen['jobs'])
+
+    def test_latest_failed_execution_cannot_fall_back_to_old_proof(self):
+        self.copy_attempt(2, {'Candidate framework recovery (pydantic_ai)': 'failure'})
+        with self.assertRaisesRegex(ValueError, 'required candidate job did not pass'): self.snapshot()
+
+    def test_copied_execution_requires_original_history_and_identical_fingerprint(self):
+        self.copy_attempt(2, {})
+        console = next(j for j in self.jobs if j['name'] == preflight.CONSOLE_JOB and j['run_attempt'] == 2)
+        original = next(j for j in self.jobs if j['name'] == preflight.CONSOLE_JOB and j['run_attempt'] == 1)
+        self.jobs.remove(original)
+        with self.assertRaisesRegex(ValueError, 'original producing execution'): self.snapshot()
+        self.jobs.append(original)
+        for field, value in (('runner_id', 999), ('started_at', '2026-11-12T01:00:01Z'),
+                             ('completed_at', '2026-11-12T01:10:01Z')):
+            with self.subTest(field=field), patch.dict(console, {field: value}):
+                with self.assertRaises(ValueError): self.snapshot()
+        with patch.dict(console['steps'][0], completed_at='2026-11-12T01:09:59Z'):
+            with self.assertRaisesRegex(ValueError, 'original producing execution'): self.snapshot()
+        self.validate()
+
+    def test_hosted_default_group_rewrite_is_equivalent_but_remains_frozen(self):
+        self.copy_attempt(2, {})
+        frozen = self.snapshot()
+        binding = frozen['executions']['console']
+        original = next(j for j in frozen['jobs'] if j['id'] == binding['producer_job_id'])
+        copied = next(j for j in frozen['jobs'] if j['id'] == binding['latest_job_id'])
+        self.assertEqual(original['runner_group_id'], 0)
+        self.assertIsNone(copied['runner_group_id'])
+        self.assertEqual(preflight.execution_fingerprint(original), preflight.execution_fingerprint(copied))
+        self.validate(frozen)
+        current = next(j for j in self.jobs if j['id'] == copied['id'])
+        with patch.dict(current, runner_group_id=7):
+            with self.assertRaisesRegex(ValueError, 'original producing execution'): self.snapshot()
+
+    def test_artifact_attempt_and_execution_window_are_unambiguous(self):
+        self.copy_attempt(2, {})
+        artifact = self.artifacts[0]
+        for suffix in ('0', '01', '2', '3', '-1'):
+            with self.subTest(suffix=suffix), patch.dict(artifact, name=preflight.CONSOLE_ARTIFACT + '-' + suffix):
+                with self.assertRaises(ValueError): self.snapshot()
+        self.artifacts.append(self.artifact(999, preflight.CONSOLE_ARTIFACT + '-2'))
+        with self.assertRaisesRegex(ValueError, 'ambiguous artifact'): self.snapshot()
+        self.artifacts.pop()
+        for created in ('2026-11-12T02:05:00Z', 'invalid', '2026-11-12T01:05:00', '2026-11-12T01:05:00+01:00'):
+            with self.subTest(created=created), patch.dict(artifact, created_at=created):
+                with self.assertRaises(ValueError): self.snapshot()
+        self.validate()
+
+    def test_successful_execution_requires_ordered_utc_job_and_step_times(self):
+        console = next(j for j in self.jobs if j['name'] == preflight.CONSOLE_JOB)
+        for field, value in (('started_at', None), ('started_at', 'invalid'),
+                             ('started_at', '2026-11-12T01:11:00Z'), ('completed_at', '2026-11-12T01:10:00')):
+            with self.subTest(field=field, value=value), patch.dict(console, {field: value}):
+                with self.assertRaises(ValueError): self.snapshot()
+        for values in ({'started_at': None}, {'completed_at': '2026-11-12T00:59:59Z'},
+                       {'completed_at': '2026-11-12T01:11:00Z'}):
+            with patch.dict(console['steps'][0], values):
+                with self.assertRaises(ValueError): self.snapshot()
+        console['steps'].append(dict(number=99, name='Conditional step', status='completed', conclusion='skipped',
+                                    started_at=None, completed_at=None))
+        self.validate()
+
+    def test_snapshot_producing_bindings_and_receipt_attempt_must_match(self):
+        self.copy_attempt(2, {})
+        frozen = self.snapshot()
+        for mutation in ('old-format', 'float-format', 'missing-bindings', 'producer', 'latest', 'attempt', 'boolean-attempt', 'selected', 'float-selected'):
+            changed = copy.deepcopy(frozen)
+            if mutation == 'old-format': changed['format'] = 1
+            elif mutation == 'float-format': changed['format'] = 2.0
+            elif mutation == 'missing-bindings': changed.pop('executions')
+            elif mutation == 'selected': changed['selected']['console'] = 101
+            elif mutation == 'float-selected': changed['selected']['console'] = float(changed['selected']['console'])
+            elif mutation == 'boolean-attempt': changed['executions']['console']['producing_attempt'] = True
+            else:
+                key = {'producer': 'producer_job_id', 'latest': 'latest_job_id', 'attempt': 'producing_attempt'}[mutation]
+                changed['executions']['console'][key] = 999
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError): self.validate(changed)
+        path = self.downloads / 'google_adk/qualification.json'
+        receipt = qualification.read_json(path)
+        qualification.write_json(path, dict(receipt, run_attempt=2))
+        with self.assertRaisesRegex(ValueError, 'execution mismatch'): self.validate(frozen)
+
+    def test_recheck_freezes_copied_execution_timestamps_and_artifact_metadata(self):
+        self.copy_attempt(2, {})
+        path = self.root / 'frozen-copies.json'
+        qualification.write_json(path, self.snapshot())
+        original_jobs, original_artifacts = copy.deepcopy(self.jobs), copy.deepcopy(self.artifacts)
+        for mutation in ('step-time', 'copied-job-id', 'group-audit', 'expired', 'artifact-digest'):
+            self.jobs, self.artifacts = copy.deepcopy(original_jobs), copy.deepcopy(original_artifacts)
+            copied = next(j for j in self.jobs if j['name'] == preflight.CONSOLE_JOB and j['run_attempt'] == 2)
+            if mutation == 'step-time': copied['steps'][0]['completed_at'] = '2026-11-12T01:09:59Z'
+            elif mutation == 'copied-job-id': copied['id'] += 1000
+            elif mutation == 'group-audit': copied['runner_group_id'] = 0
+            elif mutation == 'expired': self.artifacts[0]['expired'] = True
+            else: self.artifacts[0]['digest'] = 'sha256:' + 'e' * 64
+            with self.subTest(mutation=mutation), patch.object(sys, 'argv',
+                    ['candidate_preflight.py', 'recheck', '--snapshot', str(path)]), patch.object(preflight, 'gh', self.fetch):
+                with self.assertRaises(SystemExit) as failure: preflight.main()
+                self.assertEqual(failure.exception.code, 1)
 
     def test_new_upload_id_is_accepted_only_for_identical_archive_bytes(self):
         self.rebuild_console()

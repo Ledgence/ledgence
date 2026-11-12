@@ -8,7 +8,10 @@ monotonic deadlines, reusable execution sessions, runtime requests, metrics and
 tracing. Concrete storage, transport and process implementations live in separate
 adapter crates.
 
-Version 0.9.0 is available from crates.io. Pin it in an adapter targeting Ledgence 0.9.0. For a local source build, use the checkout path shown below. [Release reference](https://docs.ledgence.com/reference/releases).
+This README documents `ledgence-worker-api` 0.10.0. Use matching Ledgence 0.10
+components. See [GitHub releases](https://github.com/Ledgence/ledgence/releases)
+for verified release availability. For a local source build, use the checkout
+path shown below.
 
 ```toml
 [dependencies]
@@ -47,6 +50,19 @@ timeout. `PublicationCapabilities`, `PublicationLimits`, `PublishArtifactResult`
 and typed `PublicationError` values describe the exchange without concrete HTTP,
 Docker or storage SDK types.
 
+`ProgramPackageProfile` selects either `Legacy4096` or the opt-in
+`Entries8192V1` contract. `PublicationLimits::default()` retains the 4,096-member
+legacy limit; the expanded profile permits 8,192 raw ZIP members, with the same
+byte limits. `ProgramPackageInspector` verifies the retained archive without
+executing it. Profile selection is transport-local and does not add fields to the
+manifest or capabilities JSON. See the [package profile contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/program-publication.md#adapter-boundary-and-evidence).
+
+`RuntimeFeatures` includes negotiation for `execution_artifacts.v1`; its default
+advertises no optional features. The feature enables invocation-scoped execution
+file requests through a capable host. Storage, authorization and durable
+acceptance belong to the separate orchestration ports, not this feature flag or
+the program archive cache. See the [execution artifact contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/execution-artifacts.md).
+
 Use these contracts to implement adapters. This crate does not launch workers,
 retrieve programs, provide a process sandbox or implement durable orchestration.
 The unified `ledgence` executable and concrete adapters are distributed from the
@@ -55,11 +71,11 @@ operator-trusted code.
 
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions;
 matching Ledgence components should use the same release series. See the
-[published API documentation](https://docs.rs/ledgence-worker-api),
-[program package contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md),
-[publication contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-publication.md)
-and [release reference](https://docs.ledgence.com/reference/releases).
-The [source repository](https://github.com/Ledgence/ledgence) contains the
+[0.10.0 API documentation](https://docs.rs/ledgence-worker-api/0.10.0/ledgence_worker_api/),
+[program package contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/program-packages.md),
+[publication contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/program-publication.md)
+and [GitHub releases](https://github.com/Ledgence/ledgence/releases).
+The [0.10.0 source](https://github.com/Ledgence/ledgence/tree/v0.10.0) contains the
 implementations and integration examples.
 
 Ledgence-owned code is MIT licensed; the included LICENSE contains the notice.
@@ -77,7 +93,7 @@ dispatch. The latter requires both resource admission and provider recovery;
 those capabilities alone do not imply composed support. Advertise it only when
 the runtime and complete orchestration port implement the contract. Existing
 operator-trusted programs and provider integrations remain application-owned.
-[Admission behavior and limits](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+[Admission behavior and limits](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/resource-admission.md).
 The independent `task_admission.v1` capability governs a plain task's entrypoint
 without adding a Python helper. Its worker prepares the program, then requests
 one start grant. A replayed receipt or lost reply does not authorize invocation.
@@ -89,4 +105,4 @@ The default is false: its workers can still run ordinary tasks and leave governe
 ones available for capable workers. A prepared session must confirm support
 again before requesting a grant.
 
-Use version 0.9.0 of the worker API crate for these additions.
+Use version 0.10.0 of the worker API crate when targeting Ledgence 0.10.

@@ -7,7 +7,10 @@ submission, acquisition and leases, durable settlement, observation, completion
 callbacks, retention, resumable workflows with child tasks and subworkflows,
 events, and durable action approvals.
 
-Version 0.9.0 is available from crates.io. Pin it in an adapter targeting Ledgence 0.9.0. For a local source build, use the checkout path shown below. [Release reference](https://docs.ledgence.com/reference/releases).
+This README documents `ledgence-orchestration-api` 0.10.0. Use matching Ledgence 0.10
+components. See [GitHub releases](https://github.com/Ledgence/ledgence/releases)
+for verified release availability. For a local source build, use the checkout
+path shown below.
 
 ```toml
 [dependencies]
@@ -27,6 +30,22 @@ acknowledging an operation. This crate provides no database, HTTP service, broke
 or worker implementation; those components remain in the Ledgence source
 repository and release bundles.
 
+`ExecutionProgressReader` exposes bounded, resumable lifecycle pages for one task
+or workflow. `TaskStore::progress_reader` and `TaskService::progress_reader`
+default to `ContractError::Unavailable`. Implementations return a consistent
+state, event sequence and cursor snapshot; optional `wait_ms` is a best-effort
+wait of at most 20 seconds. These reads do not run recovery or stream application
+output. See the [execution progress contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/execution-progress.md).
+
+`ExecutionArtifactService` and `ExecutionArtifactClient` expose execution file
+transfer and reconciliation. `ExecutionArtifactCatalog`,
+`ExecutionArtifactBlobStore` and `ArtifactSpoolFactory` separate durable metadata,
+immutable bytes and temporary transfer storage. An `ArtifactRef` carries immutable
+content metadata, not a storage URL or access grant. The optional
+`TaskService::execution_artifacts` and `TaskService::artifact_client` hooks default
+to `ContractError::Unavailable`; absence never enables fallback storage.
+See the [execution artifact contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/execution-artifacts.md).
+
 `WorkflowStore::approved_effects` and
 `WorkflowService::approved_effects` expose the optional `ApprovedEffects` port.
 An adapter must implement both `claim_approved_effect` and
@@ -35,13 +54,13 @@ Bind the one-use dispatch grant to the saved action and its read-only lookup
 callback. Confirm the matching journal entry and the effect outcome in one
 transaction. An exact retry of a confirmation can acknowledge the existing
 result. An unresolved grant keeps the associated workflow evidence available
-during retention. [Protected external writes](https://github.com/Ledgence/ledgence/blob/develop/docs/workflow-approvals.md#protect-an-approved-external-write)
+during retention. [Protected external writes](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/workflow-approvals.md#protect-an-approved-external-write)
 
 `CredentialVerifier`, `AccessAudience` and
 `VerifiedPrincipal` provide installation-scoped authentication. The HTTP adapter
 checks each route's required `AccessCapability` before dispatching to services.
 The local opaque-credential implementation lives in a separate adapter.
-[Instance access contract](https://github.com/Ledgence/ledgence/blob/develop/docs/instance-access.md)
+[Instance access contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/instance-access.md)
 
 A workflow adapter can implement `WorkflowStore::approval_inbox` to list scoped
 approval summaries across workflows. Console adapters can implement
@@ -61,13 +80,13 @@ retain uncertain occupancy, and accept source-bound cleanup independently
 of ordinary result settlement. It must implement the corresponding transactional
 submission, acquisition, maintenance, cancellation, retention and recovery paths
 before advertising this capability. Generic acquire/renew replies never grant
-permission for a governed invocation. [Standalone task contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#standalone-task-admission)
+permission for a governed invocation. [Standalone task contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/resource-admission.md#standalone-task-admission)
 
 Requires Rust 1.98 or newer. The pre-1.0 API may change between minor versions.
-See the [published API documentation](https://docs.rs/ledgence-orchestration-api),
-[delivery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/delivery-contract.md)
-and [release reference](https://docs.ledgence.com/reference/releases).
-The [source repository](https://github.com/Ledgence/ledgence) contains the
+See the [0.10.0 API documentation](https://docs.rs/ledgence-orchestration-api/0.10.0/ledgence_orchestration_api/),
+[delivery contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/delivery-contract.md)
+and [GitHub releases](https://github.com/Ledgence/ledgence/releases).
+The [0.10.0 source](https://github.com/Ledgence/ledgence/tree/v0.10.0) contains the
 implementations and integration examples.
 
 Ledgence-owned code is MIT licensed; the included LICENSE contains the notice.
@@ -82,7 +101,7 @@ queries. All three operations are required by native credential mode.
 `VerifiedPrincipal` and `OperatorRequest` enter through trusted adapters.
 Existing approval commands and worker continuation schemas remain unchanged.
 `AuditReader` is the separate read-only client port for authenticated remote
-queries. [Operator audit contract](https://github.com/Ledgence/ledgence/blob/develop/docs/operator-audit.md).
+queries. [Operator audit contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/operator-audit.md).
 
 The optional grouped `ApprovedEffectEvidence` port supports
 verified claims, confirmation and separate observations. Implement all three
@@ -92,7 +111,7 @@ queries over retained occurrences and immutable entries. Existing workflow-store
 adapters remain source-compatible through default unavailable capability hooks.
 The retained ledger preserves claims and reported results after execution
 history is collected. Its identity, replay and legacy-proof rules are described
-in the [evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+in the [evidence contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/effect-evidence.md).
 
 `EffectResolution` supports authenticated operator
 assessments and `EffectResolutionStore` provides the complete native-wait coordinator
@@ -100,7 +119,7 @@ operation. `EffectResolutionClient` is the command-only remote port. Native wait
 carry the original effect occurrence and an immutable selected wake, without
 creating a provider result or another dispatch grant. Implementations must also
 provide retained evidence, its reader and operator audit before enabling this
-capability. [Native effect resolution](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md#record-an-operator-assessment).
+capability. [Native effect resolution](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/effect-evidence.md#record-an-operator-assessment).
 
 `ProviderOperationStore` adds the complete optional provider-recovery contract:
 request-time binding, one mutation grant, typed reports, finite read-only probe
@@ -109,7 +128,7 @@ identity out of band; `ProviderOperationClient` carries remote commands. Recover
 requires explicit installation policy and the preceding evidence, resolution and
 audit capabilities. Existing A/B reports remain opaque and are not reclassified
 as provider facts. No vendor SDK is part of these portable types.
-[Provider operations](https://github.com/Ledgence/ledgence/blob/develop/docs/provider-operations.md).
+[Provider operations](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/provider-operations.md).
 
 Adapters receiving `WorkflowActivationContext` should use `validate_for_owner`
 to bind the context and all scoped wake variants to the current lease, then
@@ -130,10 +149,10 @@ Version-2 provider bindings freeze the reviewed resource requirement; ungoverned
 version-1 bindings preserve their encoding. A linked provider report distinguishes
 call completion from business knowledge, so a pending asynchronous operation can
 outlive its original call's occupancy. Read-only probes are outside that resource
-policy. Select the 0.9 API for these contracts.
-[Admission contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+policy. Use the matching 0.10 API when targeting Ledgence 0.10.
+[Admission contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/resource-admission.md).
 
-Resource admission adapters opt into weighted offers through `supports_resource_fair_sharing()`, which defaults to false. An adapter advertising support must reserve capacity, advance the scoped resource cursor and retain its decision atomically, and implement scope-bound paginated reads. FIFO-only adapters can continue serving policies without `fair_sharing`. The service rejects a weighted policy or decision query when the active adapter lacks support. [Weighted offer contract](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md#weighted-offers).
+Resource admission adapters opt into weighted offers through `supports_resource_fair_sharing()`, which defaults to false. An adapter advertising support must reserve capacity, advance the scoped resource cursor and retain its decision atomically, and implement scope-bound paginated reads. FIFO-only adapters can continue serving policies without `fair_sharing`. The service rejects a weighted policy or decision query when the active adapter lacks support. [Weighted offer contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/resource-admission.md#weighted-offers).
 
 The crate exposes `QueuePolicyClient` for authenticated management of
 queue concurrency. A policy can set a shared maximum, pause new assignments with
@@ -145,4 +164,4 @@ A close receipt is bound to the full worker source, including the original lease
 without exposing that lease in operator inspection. Mutation retries reuse the
 same request ID, expected revision and arguments.
 
-Run budget support is an explicit adapter capability. A capable store must derive root membership from ownership and commit each delegation or call decision with the state change it authorizes. The `WorkflowStore::budgets()` and `TaskStore::supports_run_budgets()` defaults leave this capability unavailable. `RunBudgetClient` exposes scope-bound metadata. A custom worker may opt into fresh native grants with `HttpTaskService::with_budget_dispatch_fence` only when it enforces the returned send window at callback invocation. An adapter without the capability must reject budgeted submissions. [Contract and limitations](https://github.com/Ledgence/ledgence/blob/develop/docs/run-budgets.md).
+Run budget support is an explicit adapter capability. A capable store must derive root membership from ownership and commit each delegation or call decision with the state change it authorizes. The `WorkflowStore::budgets()` and `TaskStore::supports_run_budgets()` defaults leave this capability unavailable. `RunBudgetClient` exposes scope-bound metadata. A custom worker may opt into fresh native grants with `HttpTaskService::with_budget_dispatch_fence` only when it enforces the returned send window at callback invocation. An adapter without the capability must reject budgeted submissions. [Contract and limitations](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/run-budgets.md).
