@@ -82,8 +82,11 @@ def main(*, predecessor, deployment, exercise, description):
     exercise_passed = False
     try:
         for name in names:
-            create_owned_database(admin, name)
+            # CREATE may commit before its reply is lost, and its immediate
+            # compensating DROP may fail. Retain the attempted name for the
+            # final cleanup even when create_owned_database raises.
             owned.append(name)
+            create_owned_database(admin, name)
         d = deployment(
             root,
             directory,
@@ -131,7 +134,7 @@ def main(*, predecessor, deployment, exercise, description):
         cleanup_errors = []
         for name in reversed(owned):
             try:
-                admin(f'DROP DATABASE "{name}" WITH (FORCE)')
+                admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
             except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
                 cleanup_errors.append(
                     {"database": name, "failure_type": type(exc).__name__}
