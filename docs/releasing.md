@@ -73,6 +73,10 @@ and Python runner and owns a separate database/evidence directory under
 `approval-upgrade/evidence/<version>`. Neither source-only tests nor an older
 baseline substitute for the latest-stable rehearsal. The development candidate's
 Console contract is 16; the published 0.9.0 bundle retains contract 14.
+The resource and artifact gates pin each published target's source and release
+commits and require matching predecessor/candidate targets. For 0.8.0, Linux was
+built at the release merge while macOS retained its source-equivalent ancestor
+build; their distinct published identities remain explicitly pinned.
 
 `check-artifact-upgrade.py` verifies the actual published 0.9.0 bundle inventory
 and candidate provenance before and after use. It preserves existing task, fork,

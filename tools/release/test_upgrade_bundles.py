@@ -52,6 +52,67 @@ class UpgradeBundleTests(unittest.TestCase):
         verify(self.root)
         self.assertEqual(bundle(self.root / "previous-0.9.0", predecessor="0.9.0", execute=False)["console_contract"], 14)
 
+    def test_exact_published_identities_for_both_targets(self):
+        # Independent expected identities prevent fixtures from making an
+        # incorrect global source pin appear to qualify both published targets.
+        expected = {
+            ("0.8.0", "x86_64-unknown-linux-gnu"): ("e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", "e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", 7),
+            ("0.8.0", "aarch64-apple-darwin"): ("e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", "cf1804ea98d7a18c4608b9b3082646fa41c505c4", 7),
+            ("0.9.0", "x86_64-unknown-linux-gnu"): ("c5589aaae95d1dd944372beaf27847702a96e13c", "c5589aaae95d1dd944372beaf27847702a96e13c", 14),
+            ("0.9.0", "aarch64-apple-darwin"): ("c5589aaae95d1dd944372beaf27847702a96e13c", "c5589aaae95d1dd944372beaf27847702a96e13c", 14),
+        }
+        for (version, target), (release, source, contract) in expected.items():
+            with self.subTest(version=version, target=target):
+                directory = self.root / (version + target)
+                bundle_fixture(directory, version, target=target)
+                actual = bundle(directory, predecessor=version, execute=False)
+                self.assertEqual((actual["release_commit"], actual["source_commit"], actual["console_contract"], actual["target"]),
+                                 (release, source, contract, target))
+
+    def test_missing_unknown_or_inconsistent_target_is_rejected_even_resealed(self):
+        directory = self.root / "previous-0.9.0"
+        for name in ("provenance.json", "candidate-provenance.json"):
+            path = directory / name
+            original = path.read_text()
+            for target in (None, "unknown-target", "aarch64-apple-darwin"):
+                with self.subTest(provenance=name, target=target):
+                    record = json.loads(original)
+                    if target is None: record.pop("target")
+                    else: record["target"] = target
+                    path.write_text(json.dumps(record)); reseal(directory)
+                    with self.assertRaisesRegex(ValueError, "target"):
+                        bundle(directory, predecessor="0.9.0", execute=False)
+            path.write_text(original); reseal(directory)
+
+    def test_known_source_cannot_cross_platform_or_release_pins(self):
+        for target, crossed_source in (("x86_64-unknown-linux-gnu", "cf1804ea98d7a18c4608b9b3082646fa41c505c4"),
+                                       ("aarch64-apple-darwin", "e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b")):
+            directory = self.root / ("crossed-" + target)
+            bundle_fixture(directory, "0.8.0", target=target)
+            for name in ("provenance.json", "candidate-provenance.json"):
+                path = directory / name; record = json.loads(path.read_text())
+                record["source_commit"] = crossed_source
+                path.write_text(json.dumps(record))
+            reseal(directory)
+            with self.assertRaisesRegex(ValueError, "pinned published predecessor"):
+                bundle(directory, predecessor="0.8.0", execute=False)
+        for version in ("0.8.0", "0.9.0"):
+            for target in ("x86_64-unknown-linux-gnu", "aarch64-apple-darwin"):
+                directory = self.root / ("wrong-release-" + version + target)
+                bundle_fixture(directory, version, target=target)
+                path = directory / "provenance.json"; record = json.loads(path.read_text())
+                record["release_commit"] = "cf1804ea98d7a18c4608b9b3082646fa41c505c4"
+                path.write_text(json.dumps(record)); reseal(directory)
+                with self.assertRaisesRegex(ValueError, "pinned published predecessor"):
+                    bundle(directory, predecessor=version, execute=False)
+
+    def test_native_upgrade_rejects_cross_platform_candidate(self):
+        directory = self.root / "macos-previous"
+        bundle_fixture(directory, "0.9.0", target="aarch64-apple-darwin")
+        with self.assertRaisesRegex(ValueError, "matching predecessor and candidate targets"):
+            inputs(directory, self.candidate / "bin", self.candidate / "console",
+                   self.candidate / "runtime/ledgence/worker/bootstrap.py", predecessor="0.9.0", execute=False)
+
     def test_dirty_harness_checkout_rejected_despite_clean_bundle(self):
         with patch("release.upgrade_bundles.source_clean", return_value=False):
             with self.assertRaisesRegex(ValueError, "clean source checkout"):

@@ -10,11 +10,11 @@ from release.upgrade_bundles import PREDECESSORS
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def bundle_fixture(directory, label):
+def bundle_fixture(directory, label, *, target="x86_64-unknown-linux-gnu"):
     directory = Path(directory)
     version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"] if label == "current" else label
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    release_commit, commit, contract = PREDECESSORS.get(label, (head, head, 16))
+    release_commit, commit, contract = PREDECESSORS.get(label, {}).get(target, (head, head, 16))
     payload = {"bin/ledgence": f"{label}:bin/ledgence".encode(),
                "runtime/ledgence/worker/bootstrap.py": f"{label}:runtime/ledgence/worker/bootstrap.py".encode(),
                "runtime/ledgence/worker/workflow.py": f"{label}:workflow".encode(),
@@ -29,8 +29,10 @@ def bundle_fixture(directory, label):
                 "source_revision": commit, "source_dirty": False, "toolchain": {"node": "24.21.0", "pnpm": "11.27.1"},
                 "lockfile_sha256": "b" * 64, "assets": assets}
     payload["console/console-manifest.json"] = json.dumps(manifest).encode()
-    provenance = {"source_commit": commit, "source_tree_clean": True, "package_version": version,
+    provenance = {"target": target, "source_commit": commit, "source_tree_clean": True, "package_version": version,
                   "console": {"mode": "static", "manifest_sha256": hashlib.sha256(payload["console/console-manifest.json"]).hexdigest()}}
+    if label in PREDECESSORS:
+        payload["candidate-provenance.json"] = json.dumps(provenance).encode()
     if label != "current":
         provenance.update(release_tag="v" + label, release_commit=release_commit)
     payload["provenance.json"] = json.dumps(provenance).encode()
