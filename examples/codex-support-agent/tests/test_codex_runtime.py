@@ -7,7 +7,9 @@ from pathlib import Path
 import signal
 import sys
 import tempfile
+import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -235,16 +237,24 @@ class SubprocessTests(unittest.TestCase):
 import json, os, signal, sys, time
 from pathlib import Path
 fixture = json.loads(Path("fixture.json").read_text())
+def publish_pid(name):
+    temporary = Path(name + ".tmp")
+    temporary.write_text(str(os.getpid()))
+    temporary.replace(name)
+if fixture.get("startup_delay"):
+    time.sleep(fixture["startup_delay"])
 if sys.argv[1:] == ["--version"]:
     print(fixture.get("version", "codex-cli 0.158.0-alpha.2.1"))
     raise SystemExit(0)
-Path("child.pid").write_text(str(os.getpid()))
+publish_pid("child.pid")
 if fixture["mode"] == "never_read":
+    publish_pid("child.ready")
     time.sleep(10)
 prompt = sys.stdin.read()
 Path("invocation.json").write_text(json.dumps({"args":sys.argv[1:], "env":dict(os.environ), "prompt":prompt, "group":os.getpgrp()}))
 if fixture["mode"] == "timeout":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    publish_pid("child.ready")
     time.sleep(10)
 elif fixture["mode"] == "stdout_flood":
     os.write(1, b"x" * (2 * 1024 * 1024))
@@ -325,19 +335,119 @@ else:
                 self.invoke()
             self.assert_reaped()
 
+    def assert_ready_timeout(self, mode):
+        # Deliberately make both interpreter startups exceed the old 200 ms
+        # assumption. Logical time advances only after the intended condition.
+        self.mode(mode, startup_delay=0.25)
+        prompt = "x" * runtime.MAX_PROMPT_BYTES if mode == "never_read" else "ticket"
+        processes, signals, deadlines = [], [], []
+        clock = SimpleNamespace(now=0.0)
+        written = 0
+        armed = False
+        watchdog_fired = threading.Event()
+        wall_deadline = time.monotonic() + 10
+        popen, collect = runtime.subprocess.Popen, runtime._collect
+        select, write = runtime.selectors.DefaultSelector.select, os.write
+
+        def spawn(*args, **kwargs):
+            process = popen(*args, **kwargs)
+            processes.append(process)
+            send_signal = process.send_signal
+            def observed_signal(value):
+                signals.append((process.pid, value))
+                return send_signal(value)
+            process.send_signal = observed_signal
+            return process
+
+        def observed_write(fd, data):
+            nonlocal written
+            count = write(fd, data)
+            if len(processes) == 2 and not processes[1].stdin.closed and fd == processes[1].stdin.fileno():
+                written += count
+            return count
+
+        def monotonic():
+            self.assertLess(time.monotonic(), wall_deadline, "fixture did not reach the required timeout state")
+            return clock.now
+
+        def collect_with_preflight_budget(command, **kwargs):
+            deadlines.append(kwargs["deadline"])
+            result = collect(command, **kwargs)
+            if command[1:] == ["--version"]:
+                # The generation must retain the original deadline after the
+                # version check consumes most of the shared execution budget.
+                clock.now = 0.15
+            return result
+
+        def select_until_ready(selector, timeout=None):
+            nonlocal armed
+            events = select(selector, timeout)
+            ready = self.directory / "child.ready"
+            if len(processes) == 2 and ready.is_file():
+                self.assertEqual(int(ready.read_text()), processes[1].pid)
+                if mode == "never_read":
+                    pending = any(key.data == "stdin" for key in selector.get_map().values())
+                    writable = any(key.data == "stdin" for key, _ in events)
+                    # Real writes filled the pipe: part of the prompt remains
+                    # queued and the actual selector cannot write more bytes.
+                    armed = pending and not writable and 0 < written < len(prompt)
+                else:
+                    # The child publishes readiness only after ignoring TERM.
+                    armed = written == len(prompt)
+                if armed:
+                    clock.now = 0.21
+            return events
+
+        def watchdog_cleanup():
+            watchdog_fired.set()
+            for process in tuple(processes):
+                if process.poll() is None:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+
+        watchdog = threading.Timer(10, watchdog_cleanup)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            # Replace the runtime's reference, not the global time module:
+            # Popen.wait's TERM-to-KILL escalation keeps its real clock.
+            with patch.object(runtime, "time", SimpleNamespace(monotonic=monotonic)), \
+                 patch.object(runtime.subprocess, "Popen", spawn), \
+                 patch.object(runtime, "_collect", collect_with_preflight_budget), \
+                 patch.object(runtime.selectors.DefaultSelector, "select", select_until_ready), \
+                 patch.object(runtime.os, "write", observed_write):
+                with self.assertRaisesRegex(runtime.CodexError, "execution budget") as caught:
+                    self.invoke(timeout=0.2, prompt=prompt)
+            self.assertEqual(caught.exception.category, "timeout")
+            self.assertTrue(armed, "timeout occurred before the intended subprocess state")
+            self.assertFalse(watchdog_fired.is_set())
+            self.assertEqual(deadlines, [0.2, 0.2])
+            self.assertEqual(len(processes), 2)
+            self.assertEqual(processes[0].returncode, 0)
+            expected = [signal.SIGTERM, signal.SIGKILL] if mode == "timeout" else [signal.SIGTERM]
+            self.assertEqual(signals, [(processes[1].pid, value) for value in expected])
+            self.assertEqual(processes[1].returncode, -expected[-1])
+            # Check reaping before fallback cleanup; a missing marker is never
+            # accepted as evidence that a spawned child has gone away.
+            for process in processes:
+                self.assertIsNotNone(process.returncode)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(process.pid, 0)
+        finally:
+            watchdog.cancel()
+            watchdog.join(timeout=1)
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=2)
+
     def test_timeout_kills_unresponsive_child(self):
-        self.mode("timeout")
-        started = time.monotonic()
-        with self.assertRaisesRegex(runtime.CodexError, "execution budget"):
-            self.invoke(timeout=0.2)
-        self.assertLess(time.monotonic() - started, 4)
-        self.assert_reaped()
+        self.assert_ready_timeout("timeout")
 
     def test_deadline_applies_while_child_refuses_stdin(self):
-        self.mode("never_read")
-        with self.assertRaisesRegex(runtime.CodexError, "execution budget"):
-            self.invoke(timeout=0.2, prompt="x" * runtime.MAX_PROMPT_BYTES)
-        self.assert_reaped()
+        self.assert_ready_timeout("never_read")
 
     def test_cancellation_reaps_inherited_group_child(self):
         original = runtime.selectors.DefaultSelector.select
