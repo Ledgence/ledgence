@@ -1,5 +1,7 @@
 """Require complete, bundle-bound predecessor rehearsals before candidate upload (MIT)."""
 import argparse
+import hashlib
+import re
 import json
 import sys
 from pathlib import Path
@@ -7,6 +9,55 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release.upgrade_bundles import digest, inputs
+
+
+
+ARTIFACT_RESTORE_PHASES = ["quiesced", "database_dumped", "store_copied", "fresh_database_restored",
+    "missing_marker_rejected", "foreign_marker_rejected", "original_store_started",
+    "original_reference_downloaded", "same_key_replayed"]
+
+
+def verify_artifact_restore(artifacts):
+    proof = artifacts.get("backup_restore", {})
+    if (proof.get("phases") != ARTIFACT_RESTORE_PHASES or any(proof.get(key) is not True for key in
+            ("all_writers_stopped", "fresh_database", "new_store_path", "fresh_empty_spool", "catalog_restored_unchanged",
+             "same_key_replays_reference", "no_new_generation"))):
+        raise ValueError("artifact upgrade omitted quiesced artifact-bearing backup/restore proof")
+    for key in ("database_dump_sha256", "store_inventory_sha256", "restored_inventory_sha256", "marker_sha256", "download_sha256"):
+        if not isinstance(proof.get(key), str) or not re.fullmatch(r"[a-f0-9]{64}", proof[key]):
+            raise ValueError("artifact restore omitted actual backup, inventory or byte digests")
+    inventory = proof.get("store_inventory", {})
+    if not isinstance(inventory, dict):
+        raise ValueError("artifact restore omitted full store inventory")
+    for name, item in inventory.items():
+        if not name or name.startswith("/") or any(part in ("", ".", "..") for part in name.split("/")):
+            raise ValueError("invalid artifact store inventory path")
+        if item.get("kind") == "directory":
+            if item != {"kind": "directory"}:
+                raise ValueError("invalid artifact store directory inventory")
+        elif (set(item) != {"kind", "size", "sha256"} or item.get("kind") != "file"
+              or type(item.get("size")) is not int or item["size"] < 0
+              or not isinstance(item.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])):
+            raise ValueError("invalid artifact store file inventory")
+    marker = inventory.get(".ledgence-artifact-store")
+    if (marker != {"kind": "file", "size": 32, "sha256": proof["marker_sha256"]}
+            or not any(name.startswith("objects/") and item["kind"] == "file" for name, item in inventory.items())):
+        raise ValueError("artifact backup omitted hidden store identity or object bytes")
+    actual = hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if proof["store_inventory_sha256"] != actual or proof["restored_inventory_sha256"] != actual:
+        raise ValueError("artifact restore inventory does not match the backup")
+    binding = proof.get("binding", {})
+    reference = artifacts.get("reference", {})
+    if (not binding.get("store_id") or not isinstance(binding.get("fingerprint"), str)
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", binding["fingerprint"])
+            or not reference or proof.get("same_reference") != reference
+            or reference.get("digest") != "sha256:" + proof["download_sha256"]):
+        raise ValueError("artifact restore lost the original binding, reference or byte identity")
+    for case in ("missing_marker", "foreign_marker"):
+        rejected = proof.get("rejected_copies", {}).get(case, {})
+        if any(rejected.get(key) is not True for key in
+                ("nonzero_exit", "readiness_never_opened", "catalog_unchanged", "different_marker_verified", "fresh_empty_spool")):
+            raise ValueError("artifact restore omitted " + case + " startup rejection proof")
 
 
 def verify(directory):
@@ -49,6 +100,7 @@ def verify(directory):
             for group, fields in groups.items():
                 if any(exercise.get(group, {}).get(key) is not True for key in fields):
                     raise ValueError("artifact upgrade omitted " + group + " proof")
+            verify_artifact_restore(exercise["artifacts"])
             if ("20261110000000" not in exercise.get("applied_migrations", [])
                     or not exercise.get("old_rows", {}).get("sha256") or not exercise.get("backup_sha256")):
                 raise ValueError("artifact upgrade omitted migration, byte preservation or backup evidence")

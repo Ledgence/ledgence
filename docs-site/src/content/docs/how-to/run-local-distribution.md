@@ -79,7 +79,10 @@ stop following logs without stopping the service. `--service` accepts
 `postgres`, `migrate`, `orchestrator` or `worker`, and `--tail` accepts 1–10000.
 For a custom installation, add its original `--directory` to each command.
 
-`down` allows 65 seconds for shutdown and preserves named volumes. The next
+The development CLI's `down` preserves named volumes and respects each saved
+service's Compose grace period. New development kits allow 65 seconds for the
+worker and 155 seconds for the orchestrator; old saved kits keep their original
+settings. The published 0.9.0 CLI uses a 65-second shutdown timeout. The next
 `up` uses the saved kit and settings. If startup failed after state was saved,
 inspect `status` and logs, resolve the reported cause and retry `up`. Do not
 remove state or data volumes to work around a startup error.
@@ -98,15 +101,28 @@ kit, runtime image or schema, and different settings are rejected for existing
 state. Use a separate directory for independent experiments.
 
 The database, program store and worker cache live in **Docker named volumes**,
-not inside the state directory. Back up the database and immutable program store
-together, plus the saved configuration; the cache can be recreated. Stop writers
-and use PostgreSQL backup tools. Copying a live database volume is not a
-consistent backup, and copying only the state directory does not back up programs
-or execution history.
+not inside the state directory. New development kits also configure a durable
+`execution-artifacts` volume and transient `artifact-spool`; existing 0.9.0 kits
+are unchanged. Back up the database, immutable programs, configured execution
+store and saved configuration together. Worker cache and spool are not recovery
+copies. Stop writers and retention maintenance, and use PostgreSQL backup tools.
+Copying a live database volume is not consistent; copying only the state directory
+does not back up programs, execution history or files.
+
+For filesystem execution storage, preserve the full store, including the hidden
+`.ledgence-artifact-store` marker, with the same configured `store_id`. Restore it
+to an empty target **before any server or retention process opens it**. An early
+open creates a new marker rejected by the restored database. A new directory path
+is allowed; changing marker bytes or `store_id` is not. For S3, endpoint, region,
+bucket and prefix form its identity, so a cross-bucket copy is not a transparent
+restore. Verify a restored file's metadata and bytes before resuming writers.
 
 There is no `local restore`, automatic stack upgrade, database rollback, or
 migration to another Docker engine. Validate a compatible restore before an
-explicit version upgrade. See [Upgrade to 0.9.0](/how-to/upgrade-to-0-9).
+explicit version upgrade. See [Upgrade to 0.9.0](/how-to/upgrade-to-0-9) or
+[prepare a 0.10 upgrade](/how-to/upgrade-to-0-10). `down --volumes` through direct
+Compose deletes the selected project's durable volumes, including execution files
+when configured; it is an intentional reset, not a recovery procedure.
 
 ## Programs, examples, and direct Compose
 
@@ -132,7 +148,7 @@ ledgence local down
 Open the README in the saved state directory and follow its startup, publication,
 example and shutdown commands, retaining the same project name and Compose file
 list. Its process-reuse assertion requires concurrency 1. When finished, stop
-that example project with `down --timeout 65` before returning to
+that example project with `down` before returning to
 `ledgence local up`. Both projects retain their own separate volumes.
 
 For a new direct Compose installation, use

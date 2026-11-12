@@ -45,9 +45,27 @@ def reseal(directory):
 
 
 def artifact_exercise_fixture():
-    return {"double_migration": True, "fresh_restore": True, "restored_rows_unchanged": True,
+    result = {"double_migration": True, "fresh_restore": True, "restored_rows_unchanged": True,
             "interrupted_migration": {key: True for key in ("observed_transactional_ddl", "nonzero_exit", "artifact_migration_rolled_back", "historical_rows_unchanged")},
             "old_binary_rejection": {key: True for key in ("nonzero_exit", "schema_error_verified", "readiness_never_opened", "historical_rows_unchanged")},
             "artifacts": {key: True for key in ("old_credential_denied_artifact_write", "preserved_root_accepts_artifact", "same_key_replays_reference", "restart_verified_bytes")},
             "resumed": {key: True for key in ("queued_task_completed_once", "parked_admission_completed_once", "fork_join_completed_once", "local_step_not_reexecuted", "callback_delivered", "submission_and_queue_receipts_replayed")},
             "applied_migrations": ["20261110000000"], "old_rows": {"sha256": {"tasks": "a" * 64}}, "backup_sha256": "b" * 64}
+
+    from release.upgrade_evidence import ARTIFACT_RESTORE_PHASES
+    reference = {"schema": "ledgence.artifact.v1", "id": "art_fixture", "digest": "sha256:" + "c" * 64,
+                 "size": 42, "media_type": "application/octet-stream"}
+    inventory = {".ledgence-artifact-store": {"kind": "file", "size": 32, "sha256": "d" * 64},
+                 ".staging": {"kind": "directory"}, "objects": {"kind": "directory"},
+                 "objects/art_fixture/upl_fixture": {"kind": "file", "size": 42, "sha256": "c" * 64}}
+    checksum = hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    result["artifacts"].update(reference=reference, backup_restore={
+        "phases": ARTIFACT_RESTORE_PHASES, "all_writers_stopped": True, "fresh_database": True, "new_store_path": True,
+        "catalog_restored_unchanged": True, "same_key_replays_reference": True, "no_new_generation": True, "fresh_empty_spool": True,
+        "database_dump_sha256": "e" * 64, "store_inventory": inventory, "store_inventory_sha256": checksum,
+        "restored_inventory_sha256": checksum, "marker_sha256": "d" * 64,
+        "binding": {"store_id": "upgrade-artifacts", "fingerprint": "sha256:" + "f" * 64},
+        "same_reference": reference, "download_sha256": "c" * 64,
+        "rejected_copies": {case: {key: True for key in ("nonzero_exit", "readiness_never_opened", "catalog_unchanged", "different_marker_verified", "fresh_empty_spool")}
+                            for case in ("missing_marker", "foreign_marker")}})
+    return result

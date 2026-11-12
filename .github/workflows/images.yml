@@ -23,6 +23,7 @@ on:
       - 'tools/release/**'
       - 'tools/program_fixture.py'
       - 'tools/check-distribution.py'
+      - 'tools/distribution_shutdown.py'
   workflow_dispatch:
     inputs:
       publish:

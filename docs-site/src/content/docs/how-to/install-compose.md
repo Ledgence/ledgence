@@ -131,13 +131,20 @@ Return to the extracted kit directory when you need to operate this stack:
 
 ```sh
 docker compose --project-name ledgence-local --file compose.yaml logs --tail 100 orchestrator worker
-docker compose --project-name ledgence-local --file compose.yaml down --timeout 65
+docker compose --project-name ledgence-local --file compose.yaml down
 ```
 
 `down` stops the services and keeps their named data volumes. Start them again
 with the same `up` command from step 3. Keep the same `--project-name` and
 `--file` values: together they identify this installation. Do not add `--volumes`
 to cleanup commands unless you intend to delete its data.
+
+Leave shutdown grace periods to the kit's service configuration. New development
+kits use 65 seconds for the worker and 155 seconds for the orchestrator; the
+published kit and existing saved installations retain their own settings. New
+kits also configure durable execution files. Follow the
+[backup and restore procedure](/how-to/run-local-distribution#preserve-configuration-and-data)
+for every configured store before an [explicit 0.10 upgrade](/how-to/upgrade-to-0-10).
 
 The `ledgence local status`, `logs` and `down` commands manage a different,
 CLI-created project; they do not operate this direct Compose installation.

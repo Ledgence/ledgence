@@ -31,8 +31,9 @@ Relative paths resolve against this file's directory, not the process working
 directory. Keep the byte-store directory on persistent storage. Its durable
 marker is part of its identity: copying only object files into a new empty store
 does not preserve that identity. The database binds `store_id` and fingerprint;
-a conflicting binding fails startup. Do not edit the marker or change storage
-location as a way to bypass that check. Configuration is strict JSON, at most
+a conflicting binding fails startup. A restored filesystem path may change only
+while preserving the complete store, its marker bytes and configured `store_id`;
+changing the path does not bypass this check. Configuration is strict JSON, at most
 16 KiB, with no credentials embedded.
 
 The filesystem mode supports one orchestrator with a persistent local volume.
@@ -222,8 +223,23 @@ failure rather than treat that warning as successful shutdown.
 Artifacts follow the canonical root's retention, not an individual child task.
 Removing a child does not remove its files while the root remains retained.
 Root retirement hides artifacts from new reads; already authorized responses can
-finish. Back up the PostgreSQL catalog and durable byte store together, preserving
-the store marker or S3 identity. Spools are transient and are not recovery copies.
+finish. Stop all writers and retention maintenance, then back up the PostgreSQL
+catalog, immutable program store, configuration and complete durable artifact
+store as one recovery set. For filesystem storage, include hidden files,
+especially `.ledgence-artifact-store`, and retain the configured `store_id`.
+Copying only the object files loses the store identity.
+
+Restore the complete filesystem copy into an empty target **before the server
+or retention command first opens it**. An early open creates a new marker, which
+the restored catalog rejects. The directory path may change, but the marker bytes
+and `store_id` must remain unchanged. Verify accepted file metadata and downloaded
+digests against the matching restored database before resuming writers. Worker
+caches and artifact spools are transient and are not recovery copies.
+
+For S3, the fingerprint binds endpoint, region, bucket and prefix. Preserve that
+identity and matching objects; copying objects to another bucket or prefix is not
+a transparent restore. The local RustFS adapter gate does not qualify AWS backup
+or cross-bucket migration. See the [0.10 upgrade rehearsal](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
 
 Pass the same `--artifact-config` to `ledgence orchestrator retain --apply` for
 physical maintenance. Preview remains read-only. Maintenance uses a separately

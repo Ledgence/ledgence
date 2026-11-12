@@ -36,8 +36,9 @@ STUB = '''import hashlib,json,os,sys
 from pathlib import Path
 if sys.argv[1:] == ['-']: os.execv(sys.executable,[sys.executable,'-'])
 args=sys.argv[1:]
-with Path(os.environ['CALLS']).open('a') as out: out.write(json.dumps(args)+'\\n')
 label=Path(args[0]).name
+if label == 'framework_qualification.py': os.execv(sys.executable,[sys.executable,*args])
+with Path(os.environ['CALLS']).open('a') as out: out.write(json.dumps(args)+'\\n')
 if os.environ.get('FAIL') == label: raise SystemExit(9)
 if os.environ.get('OMIT') == label: raise SystemExit(0)
 value=lambda key: args[args.index(key)+1]
@@ -52,6 +53,11 @@ elif label == 'check-framework-workers.py':
     report.update(cleanup_complete=True,scenarios=[dict(passed=True)],helper_sha256_after=hashes,binary_sha256=hashlib.sha256((Path(value('--binaries'))/'ledgence').read_bytes()).hexdigest())
 else:
     report.update(cleanup_complete=True,scenarios=[dict(passed=True)],binary_sha256={key:hashlib.sha256((Path(value(arg))/'ledgence').read_bytes()).hexdigest() for key,arg in [('candidate','--binaries'),('legacy','--legacy-binaries')]})
+if os.environ.get('CANDIDATE_QUALIFICATION') and label in ('check-framework-integrations.py','check-framework-workers.py'):
+    sys.path.insert(0,str(Path('tools/release').resolve()))
+    from test_candidate_proof import reports
+    identity=json.loads((Path(os.environ['RUNNER_TEMP'])/'framework-candidate-state.json').read_text())
+    report=reports(identity,framework,helper.parent)[label=='check-framework-workers.py']
 if os.environ.get('CORRUPT_LABEL') == label: report[os.environ['CORRUPT_KEY']]=json.loads(os.environ['CORRUPT_VALUE'])
 (out/'summary.json').write_text(json.dumps(report))
 '''
@@ -75,6 +81,19 @@ class FrameworkWorkflowTests(unittest.TestCase):
             env=dict(os.environ,PATH=str(commands)+os.pathsep+os.environ['PATH'],RUNNER_TEMP=str(run),CALLS=str(calls),
                 FRAMEWORK=('framework-' if path==CI else '')+framework,FRAMEWORK_HELPER_ROOT=str(helper),
                 FRAMEWORK_BINARIES=str(binaries),LEDGENCE_PYTHON=sys.executable,GITHUB_SHA=SHA,FAIL=fail,OMIT=omit)
+            if path==CANDIDATE and name==CANDIDATE_QUALIFY:
+                runtime={str(p.relative_to(helper)):hashlib.sha256(p.read_bytes()).hexdigest() for p in helper.rglob('*') if p.is_file()}
+                bundle=helper.parent
+                (binaries/'ledgence').chmod(0o755)
+                (bundle/'provenance.json').write_text(json.dumps(dict(source_commit=SHA,source_tree_clean=True,console={'mode':'headless'})))
+                (bundle/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+str(p.relative_to(bundle))+'\n'
+                    for p in sorted(bundle.rglob('*')) if p.is_file() and p.name!='SHA256SUMS'))
+                state=dict(source_sha=SHA,artifact_id=1,artifact_name='candidate-console-linux-x86_64-1',
+                    runtime_sha256=runtime,helper_sha256=runtime,binary_sha256=hashlib.sha256((binaries/'ledgence').read_bytes()).hexdigest(),
+                    provenance_sha256=hashlib.sha256((bundle/'provenance.json').read_bytes()).hexdigest(),
+                    inventory_sha256=hashlib.sha256((bundle/'SHA256SUMS').read_bytes()).hexdigest())
+                (run/'framework-candidate-state.json').write_text(json.dumps(state))
+                env.update(CANDIDATE_QUALIFICATION='1',GITHUB_REPOSITORY='Ledgence/ledgence',GITHUB_RUN_ID='55',GITHUB_RUN_ATTEMPT='1')
             if corrupt:
                 label,key,value=corrupt;env.update(CORRUPT_LABEL=label,CORRUPT_KEY=key,CORRUPT_VALUE=json.dumps(value))
             result=subprocess.run(['bash','-eu','-o','pipefail','-c',script(path,name)],cwd=ROOT,env=env,capture_output=True,text=True)
@@ -118,8 +137,8 @@ class FrameworkWorkflowTests(unittest.TestCase):
 
     def test_candidate_only_uses_verified_archive_runtime_and_binary(self):
         job=CANDIDATE.read_text().split('  frameworks:\n',1)[1].split('  console:\n',1)[0]
-        for expected in ('needs: candidate','framework: [pydantic_ai, google_adk, claude_agent_sdk]',"python-version: '3.14'",
-            'name: candidate-headless-ubuntu-24.04','FRAMEWORK_HELPER_ROOT: ${{ runner.temp }}/ledgence-framework-bundle/runtime',
+        for expected in ('needs: [candidate, console]','framework: [pydantic_ai, google_adk, claude_agent_sdk]',"python-version: '3.14'",
+            'artifact-ids: ${{ inputs.include_console && needs.console.outputs.artifact_id','FRAMEWORK_HELPER_ROOT: ${{ runner.temp }}/ledgence-framework-bundle/runtime',
             'FRAMEWORK_BINARIES: ${{ runner.temp }}/ledgence-framework-bundle/bin'): self.assertIn(expected,job)
         self.assertNotIn('continue-on-error',job);self.assertNotIn('cargo build',job)
         result,calls=self.exercise(CANDIDATE,CANDIDATE_QUALIFY);self.assertEqual(result.returncode,0,result.stderr)
@@ -131,7 +150,7 @@ class FrameworkWorkflowTests(unittest.TestCase):
             root=Path(temporary);run=root/'run';run.mkdir();stage=root/'stage';(stage/'bin').mkdir(parents=True)
             (stage/'bin/ledgence').write_text('inert candidate executable')
             shutil.copytree(ROOT/'sdk/python/ledgence',stage/'runtime/ledgence',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
-            provenance=dict(source_commit=SHA,source_tree_clean=True,console={'mode':'headless'})
+            provenance=dict(source_commit=SHA,source_tree_clean=True,console={'mode':'headless'},package_version='0.10.0',target='x86_64-unknown-linux-gnu')
             if mutation=='source': provenance['source_commit']='b'*40
             if mutation=='dirty': provenance['source_tree_clean']=False
             if mutation=='vendor':
@@ -149,10 +168,13 @@ class FrameworkWorkflowTests(unittest.TestCase):
             (download/'SHA256SUMS').write_text((('0'*64) if mutation=='checksum' else digest)+'  candidate.tar.gz\n')
             if mutation=='extra_archive': shutil.copyfile(archive,download/'unexpected.tar.gz')
             commands=root/'commands';commands.mkdir();(commands/'python').symlink_to(sys.executable)
+            git=commands/'git'
+            git.write_text('#!'+sys.executable+'\nimport sys\nprint('+repr(SHA)+') if sys.argv[1]=="rev-parse" else None\n');git.chmod(0o755)
             checksum=commands/'sha256sum'
             checksum.write_text('#!'+sys.executable+'\nimport hashlib\nfrom pathlib import Path\nfor line in Path("SHA256SUMS").read_text().splitlines():\n    digest,name=line.split("  ",1)\n    assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==digest\n');checksum.chmod(0o755)
             env=dict(os.environ,PATH=str(commands)+os.pathsep+os.environ['PATH'],RUNNER_TEMP=str(run),GITHUB_WORKSPACE=str(ROOT),
-                     GITHUB_SHA=SHA,GITHUB_ENV=str(root/'github-env'),LEDGENCE_POSTGRES_CONTAINER='inert-service')
+                     GITHUB_SHA=SHA,GITHUB_ENV=str(root/'github-env'),LEDGENCE_POSTGRES_CONTAINER='inert-service',
+                     CANDIDATE_ARTIFACT_ID='100',CANDIDATE_ARTIFACT_NAME='candidate-headless-ubuntu-24.04-1',CANDIDATE_MODE='headless')
             result=subprocess.run(['bash','-eu','-o','pipefail','-c',script(CANDIDATE,VERIFY)],cwd=ROOT,env=env,capture_output=True,text=True)
             return result,(run/'ledgence-framework-bundle/runtime/ledgence/worker/bootstrap.py').exists()
 
@@ -163,11 +185,14 @@ class FrameworkWorkflowTests(unittest.TestCase):
                 result,exists=self.verify_candidate(mutation);self.assertNotEqual(result.returncode,0);self.assertFalse(exists)
 
     def test_evidence_uploads_exclude_vendor_environments_and_payloads(self):
-        for path,name in ((CI,'Retain optional framework summaries and logs'),(CANDIDATE,'Retain candidate framework summaries and logs')):
+        for path,name in ((CI,'Retain optional framework summaries and logs'),):
             upload=step(path,name);self.assertIn('if-no-files-found: error',upload)
             paths=upload.split('          path: |\n',1)[1].split('          if-no-files-found:',1)[0]
             for forbidden in ('runtime-env','source-wheel','framework-sdk/\n','framework-workers/\n'): self.assertNotIn(forbidden,paths)
             self.assertIn('framework-workers/summary.json',paths);self.assertIn('framework-sdk/*.json',paths)
+        upload=step(CANDIDATE,'Retain candidate framework qualification')
+        self.assertIn('path: ${{ runner.temp }}/framework-qualification/',upload)
+        for forbidden in ('*.log','*.jsonl','*.stdout','*.stderr','if: always()'): self.assertNotIn(forbidden,upload)
 
     def test_profile_gate_uses_verified_baseline_and_fails_closed(self):
         self.assertIn('LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}', step(CANDIDATE, PROFILES))

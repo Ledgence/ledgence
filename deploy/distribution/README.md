@@ -66,12 +66,34 @@ major/minor. Vendor dependencies for that environment, including required
 native libraries. Image multiarchitecture support does not make program ZIPs
 portable or select compatible workers automatically.
 
-`down --timeout 65` preserves named volumes. PostgreSQL and the program store
-hold durable data; cache can be recreated. Never use `down --volumes` to fix a
-startup problem. Back up data and stop writers before applying an explicitly
-planned version/schema upgrade. The migrator runs before the server; the server
-only verifies its schema. This kit does not perform implicit upgrades or offer
-automatic rollback of migrated data.
+## Preserve and restore data
+
+`down` preserves named volumes and lets Compose use each service's configured
+grace period: 65 seconds for the worker and 155 seconds for the orchestrator in
+this development kit. Older saved kits keep their own configuration. A newer CLI
+does not rewrite it; do not force one timeout over all services.
+
+New development kits configure filesystem execution storage in the durable
+`execution-artifacts` volume. Published 0.9.0 and older saved kits do not gain this
+capability by updating the CLI. PostgreSQL, immutable programs, execution files
+and saved configuration form a recovery set. Worker cache and `artifact-spool`
+are transient and are not recovery copies.
+
+Stop writers and retention maintenance before backing up. Use PostgreSQL backup
+tools; copying a live database volume is not consistent. Copy the complete artifact
+store, including hidden `.ledgence-artifact-store`, and retain the configured
+`store_id`. Restore it to an empty target before a server or retention process
+first opens the store. Opening an empty target creates a different marker that
+the restored database rejects. The path may change; the marker bytes and
+`store_id` must not. Verify file metadata and downloaded digests against the
+matching restored database before resuming writers. S3 storage has different
+identity constraints; see the [artifact recovery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#retention-and-backup).
+
+Never use `down --volumes` to fix a startup problem: it deletes this project's
+database, programs, execution files, cache and spool (and receiver state when the
+examples override is used). Plan and rehearse each version/schema upgrade. The
+migrator runs before the server; the server only verifies its schema. This kit
+does not perform implicit upgrades or offer automatic rollback of migrated data.
 
 The host API binds to loopback. Fixed credentials and internal HTTP belong to
 this local operator-trusted deployment. Images and included third-party software

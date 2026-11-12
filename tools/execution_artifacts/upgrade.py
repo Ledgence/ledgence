@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import importlib.util
 import json
 import socket
+import shutil
+import uuid
 
 from http_acceptance.harness import Deployment, Process, eventually
 from instance_access.harness import AccessDeployment
@@ -230,7 +233,7 @@ def resume(d, seeded, receiver):
 
 
 
-def artifacts_after_restore(d, seeded):
+def artifacts_after_restore(d, seeded, restore_url, backup, pgtools):
     """Enable the new feature on a preserved predecessor root, then restart it."""
     from execution_artifacts.harness import ArtifactDeployment
     writer, d.config, _ = d.issue("artifact-writer", "upgrade-artifact-writer", [
@@ -258,11 +261,143 @@ def artifacts_after_restore(d, seeded):
     assert destination.read_bytes() == payload
     assert d.sql("SELECT count(*) FROM execution_artifacts") == d.sql("SELECT count(*) FROM artifact_uploads") == "1"
     d.offline()
+    restored = restore_artifact_snapshot(d, restore_url, backup, pgtools, objects, writer, command, reference, payload)
     return {"old_credential_denied_artifact_write": True, "preserved_root_accepts_artifact": True,
-            "same_key_replays_reference": True, "restart_verified_bytes": True, "reference": reference}
+            "same_key_replays_reference": True, "restart_verified_bytes": True, "reference": reference,
+            "backup_restore": restored}
 
 
-def exercise(d, previous, bins, console, candidate_runner, restore_url, backup, pgtools):
+def store_inventory(directory):
+    """Include dotfiles and empty directories in the quiesced filesystem copy."""
+    result = {}
+    for path in sorted(directory.rglob("*")):
+        assert not path.is_symlink(), "artifact backup contains a symlink"
+        name = path.relative_to(directory).as_posix()
+        if path.is_dir():
+            result[name] = {"kind": "directory"}
+        else:
+            assert path.is_file(), "artifact backup contains a nonregular entry"
+            result[name] = {"kind": "file", "size": path.stat().st_size,
+                            "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    return result
+
+
+def inventory_digest(inventory):
+    return hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def restore_artifact_snapshot(d, restore_url, backup, pgtools, objects, writer, command, reference, payload):
+    """Restore a matching candidate database and complete immutable store to new locations."""
+    from execution_artifacts.harness import ArtifactDeployment
+    d.offline()
+    assert all(process.process.poll() is not None for process in d.processes), "snapshot has live writers or maintainers"
+    phases = ["quiesced"]
+    original_url = d.database_url
+    before = fingerprint(d)
+    assert before["counts"]["execution_artifacts"] == before["counts"]["artifact_uploads"] == 1
+    binding = json.loads(d.sql("SELECT row_to_json(q) FROM (SELECT store_id,fingerprint FROM artifact_stores) q"))
+    selected = d.sql("SELECT selected_upload_id || ':' || selection_revision::text FROM execution_artifacts")
+    original_config = json.loads(d.artifact_config.read_text())
+    assert binding["store_id"] == original_config["store_id"]
+    inventory = store_inventory(objects)
+    marker = objects / ".ledgence-artifact-store"
+    marker_bytes = marker.read_bytes()
+    assert len(marker_bytes) == 32 and ".ledgence-artifact-store" in inventory
+    assert any(name.startswith("objects/") and item["kind"] == "file" for name, item in inventory.items())
+    snapshot_database(pgtools["pg_dump"], original_url, backup)
+    with backup.open("rb") as stream:
+        backup_sha = hashlib.file_digest(stream, "sha256").hexdigest()
+    phases.append("database_dumped")
+    copied = backup.parent / "complete-artifact-store"
+    shutil.copytree(objects, copied)
+    assert store_inventory(copied) == inventory and fingerprint(d) == before
+    phases.append("store_copied")
+    restored = d.directory / "restored-artifact-store"
+    shutil.copytree(copied, restored)
+    assert restored.resolve() != objects.resolve() and store_inventory(restored) == inventory
+    assert restore_url != original_url
+    d.database_url = restore_url; d.environment["DATABASE_URL"] = restore_url
+    assert d.sql("SELECT count(*) FROM information_schema.tables WHERE table_schema='public'") == "0"
+    restore_database(pgtools["pg_restore"], restore_url, backup)
+    assert fingerprint(d) == before
+    phases.append("fresh_database_restored")
+    original_spool = (d.artifact_config.parent / original_config["spool_directory"]).resolve()
+    restored_spools = set()
+    def configure(directory, label):
+        spool = d.directory / ("restored-spool-" + label)
+        assert spool.resolve() != original_spool and spool.resolve() not in restored_spools
+        spool.mkdir()
+        assert not any(spool.iterdir()), "restore attempt inherited transient spool contents"
+        restored_spools.add(spool.resolve())
+        config = dict(original_config, backend={"kind": "filesystem", "directory": str(directory)},
+                      spool_directory=str(spool))
+        d.artifact_config.write_text(json.dumps(config))
+        return {"fresh_empty_spool": True}
+    rejected = {}
+    for case in ("missing_marker", "foreign_marker"):
+        damaged = d.directory / ("restored-artifacts-" + case)
+        shutil.copytree(copied, damaged)
+        damaged_marker = damaged / ".ledgence-artifact-store"
+        if case == "missing_marker":
+            damaged_marker.unlink()
+        else:
+            damaged_marker.write_text(uuid.uuid4().hex)
+        fresh_spool = configure(damaged, case)
+        process = Process(d.server_args(d.config), d.directory, "artifact-restore-" + case, d.environment)
+        d.processes.append(process)
+        def exited_without_readiness():
+            # The OS listener is reserved before artifact binding; serving HTTP
+            # starts only after binding succeeds. Probe readiness, not TCP bind.
+            probe = http.client.HTTPConnection("127.0.0.1", d.server_port, timeout=.2)
+            try:
+                probe.request("GET", "/health/ready")
+                assert probe.getresponse().status != 200, "mismatched artifact store became ready"
+            except (OSError, http.client.HTTPException):
+                pass
+            finally:
+                probe.close()
+            return process.process.poll() is not None
+        eventually(exited_without_readiness, timeout=20, description=case + " rejected against retained artifact catalog")
+        assert process.process.returncode != 0
+        output = process.stderr_path.read_text() + process.stdout_path.read_text()
+        assert "conflict" in output.lower(), "artifact startup failed for a reason other than store binding"
+        assert damaged_marker.is_file() and damaged_marker.read_bytes() != marker_bytes
+        assert fingerprint(d) == before, "rejected store changed the restored database binding or catalog"
+        rejected[case] = {**fresh_spool, "nonzero_exit": True, "readiness_never_opened": True,
+                          "catalog_unchanged": True, "different_marker_verified": True}
+        phases.append(case + "_rejected")
+    fresh_spool = configure(restored, "complete")
+    assert (restored / ".ledgence-artifact-store").read_bytes() == marker_bytes
+    restored_inventory = store_inventory(restored)
+    assert restored_inventory == inventory
+    d.start_server()
+    phases.append("original_store_started")
+    manifest = ArtifactDeployment.artifact_command(d, "inspect", ["--artifact", reference["id"]], credentials=writer)
+    assert manifest["reference"] == reference
+    destination = d.directory / "artifact-restored-download.bin"
+    ArtifactDeployment.artifact_command(d, "download", ["--artifact", reference["id"], "--file", str(destination)], credentials=writer)
+    assert destination.read_bytes() == payload
+    phases.append("original_reference_downloaded")
+    assert ArtifactDeployment.artifact_command(d, "put", command, credentials=writer) == reference
+    phases.append("same_key_replayed")
+    d.offline()
+    assert d.sql("SELECT selected_upload_id || ':' || selection_revision::text FROM execution_artifacts") == selected
+    assert d.sql("SELECT count(*) FROM execution_artifacts") == d.sql("SELECT count(*) FROM artifact_uploads") == "1"
+    assert json.loads(d.sql("SELECT row_to_json(q) FROM (SELECT store_id,fingerprint FROM artifact_stores) q")) == binding
+    # Each startup replaces its transient .staging owner. The complete copy
+    # matched before activation; immutable objects and identity must stay exact.
+    def durable(entries):
+        return {name: item for name, item in entries.items() if name != ".staging" and not name.startswith(".staging/")}
+    assert durable(store_inventory(restored)) == durable(inventory)
+    return {**fresh_spool, "phases": phases, "all_writers_stopped": True, "fresh_database": True, "new_store_path": True,
+            "database_dump_sha256": backup_sha, "store_inventory": inventory, "store_inventory_sha256": inventory_digest(inventory),
+            "restored_inventory_sha256": inventory_digest(restored_inventory),
+            "marker_sha256": hashlib.sha256(marker_bytes).hexdigest(), "binding": binding,
+            "catalog_restored_unchanged": True, "same_reference": reference, "download_sha256": hashlib.sha256(payload).hexdigest(),
+            "same_key_replays_reference": True, "no_new_generation": True, "rejected_copies": rejected}
+
+
+def exercise(d, previous, bins, console, candidate_runner, restore_url, backup, pgtools, *, artifact_restore_url):
     spec = importlib.util.spec_from_file_location("artifact_upgrade_receiver", d.root / "tools/check-completions.py")
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     receiver = module.Receiver(); receiver.set("fail")
@@ -289,7 +424,7 @@ def exercise(d, previous, bins, console, candidate_runner, restore_url, backup, 
         assert d.sql("SELECT to_regclass('public.artifact_stores') IS NULL") == "t"
         assert migrate_twice(d, original, before) == applied
         resumed = resume(d, seeded, receiver)
-        artifacts = artifacts_after_restore(d, seeded)
+        artifacts = artifacts_after_restore(d, seeded, artifact_restore_url, backup.with_name("artifact-backup.dump"), pgtools)
         receiver.assert_healthy()
         return {"predecessor_migrations": original, "applied_migrations": applied, "seeded": seeded,
                 "old_rows": before, "backup_sha256": backup_sha, "interrupted_migration": interrupted,

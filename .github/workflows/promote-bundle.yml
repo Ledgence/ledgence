@@ -64,26 +64,81 @@ jobs:
           fi
           source_version=$(python tools/release/registry.py source --publish)
           test "$source_version" = "$VERSION"
-      - name: Download the selected candidate from this repository
+      - name: Freeze successful candidate job executions and immutable artifact IDs
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/release/candidate_preflight.py snapshot \
+            --repository "$GITHUB_REPOSITORY" --run "$CANDIDATE_RUN" \
+            --output "$RUNNER_TEMP/candidate-executions.json"
+      - name: Download frozen console artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: candidate-console-linux-x86_64
-          path: ${{ runner.temp }}/ledgence-candidate
+          artifact-ids: ${{ steps.candidate.outputs.console_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate-proof/console
           repository: ${{ github.repository }}
           github-token: ${{ github.token }}
           run-id: ${{ inputs.candidate_run }}
+      - name: Download frozen pydantic_ai artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.candidate.outputs.pydantic_ai_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate-proof/pydantic_ai
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+      - name: Download frozen google_adk artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.candidate.outputs.google_adk_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate-proof/google_adk
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+      - name: Download frozen claude_agent_sdk artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.candidate.outputs.claude_agent_sdk_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate-proof/claude_agent_sdk
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+      - name: Verify all SDK receipts against the selected Console archive
+        run: |
+          python tools/release/candidate_preflight.py verify \
+            --snapshot "$RUNNER_TEMP/candidate-executions.json" \
+            --downloads "$RUNNER_TEMP/candidate-proof" --sha256 "$CANDIDATE_SHA256" \
+            --version "$VERSION" --output "$RUNNER_TEMP/candidate-qualification.json"
       - name: Check candidate digest and promote with relocated Linux execution
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob
-          archives=("$RUNNER_TEMP/ledgence-candidate/"*.tar.gz)
+          archives=("$RUNNER_TEMP/candidate-proof/console/"*.tar.gz)
           if [[ "${#archives[@]}" != 1 ]]; then
             echo "The selected artifact must contain exactly one candidate archive." >&2
             exit 1
           fi
           printf '%s  %s\n' "$CANDIDATE_SHA256" "${archives[0]}" | sha256sum -c -
+          python tools/release/candidate_preflight.py recheck --snapshot "$RUNNER_TEMP/candidate-executions.json"
           python tools/release/promote.py --archive "${archives[0]}" \
             --sha256 "$CANDIDATE_SHA256" --release-ref "$GITHUB_REF" \
             --version "$VERSION" --output "$RUNNER_TEMP/ledgence-stable"
+          python tools/release/candidate_preflight.py recheck --snapshot "$RUNNER_TEMP/candidate-executions.json"
+      - name: Retain candidate promotion qualification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-promotion-qualification-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/candidate-executions.json
+            ${{ runner.temp }}/candidate-qualification.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Verify stable archive checksum
         working-directory: ${{ runner.temp }}/ledgence-stable
         run: sha256sum -c SHA256SUMS

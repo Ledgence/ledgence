@@ -19,6 +19,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'release'))
 from local_distribution import verify_directory
+from distribution_shutdown import shutdown_upload, verify_restarted_upload
 
 
 class Acceptance:
@@ -195,7 +196,7 @@ class Acceptance:
         # This also proves that the base installation needs neither examples nor
         # the callback receiver, before explicitly selecting the optional kit.
         base_sessions = self.worker_session_ids()
-        self.run(self.compose + ['down', '--timeout', '65'])
+        self.run(self.compose + ['down'], timeout=420)
         self.run(self.examples + ['up', '--no-build', '--detach', '--wait', '--wait-timeout', '120'])
         self.run(self.examples + ['run', '--rm', '--no-deps', 'publish'])
         self.run(self.examples + ['run', '--rm', '--no-deps', 'publish'])
@@ -207,7 +208,7 @@ class Acceptance:
         # Last-known accepting observations can remain fresh after process exit.
         # Exclude every session seen before restart, not just the selected worker.
         before_sessions = self.worker_session_ids()
-        self.run(self.examples + ['down', '--timeout', '65'])
+        self.run(self.examples + ['down'], timeout=420)
         self.run(self.examples + ['up', '--no-build', '--detach', '--wait', '--wait-timeout', '120'])
         assert self.preserved(demo) == before
         after_console = self.console(expected, excluded_sessions=before_sessions)
@@ -338,8 +339,10 @@ class Acceptance:
         self.run(command + ['status', '--directory', str(state_dir)])
         self.run(command + ['logs', '--directory', str(state_dir), '--tail', '10'])
         before_sessions = self.worker_session_ids(base='http://127.0.0.1:' + str(port))
-        self.run(command + ['down', '--directory', str(state_dir)])
+        shutdown = shutdown_upload(self, command + ['down', '--directory', str(state_dir)],
+                                   cli_compose, base, publication['workflow_id'])
         self.run(command + ['up', '--directory', str(state_dir)], timeout=330)
+        verify_restarted_upload(self, base, shutdown)
         second = self.console(['html-report'], base=base, excluded_sessions=before_sessions)
         assert self.publication_result(base, publication['workflow_id']) == publication['output']
         workflow_id, output = self.publication_execute(base, publication['descriptor'])
@@ -348,17 +351,18 @@ class Acceptance:
         self.report['program_publication'] = publication
         assert path.read_bytes() == original
         assert second['worker_session_id'] != first['worker_session_id']
-        self.run(command + ['down', '--directory', str(state_dir)])
+        self.run(command + ['down', '--directory', str(state_dir)], timeout=420)
         self.report['cli'] = {'passed': True, 'state_sha256': hashlib.sha256(original).hexdigest(),
                               'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
-                              'repeat_up_identity_preserved': True, 'restart_preserved_kit_and_settings': True}
+                              'repeat_up_identity_preserved': True, 'restart_preserved_kit_and_settings': True,
+                              'artifact_shutdown': shutdown}
 
     def cleanup(self):
         errors = []
         for project, command in reversed(self.owned):
             try:
                 self.run(command + ['logs', '--no-color'], timeout=30, check=False)
-                self.run(command + ['down', '--volumes', '--remove-orphans', '--timeout', '65'], timeout=120)
+                self.run(command + ['down', '--volumes', '--remove-orphans'], timeout=420)
                 assert not self.run(['docker', 'ps', '--all', '--quiet', '--filter', 'label=com.docker.compose.project=' + project]).strip()
                 assert not self.run(['docker', 'volume', 'ls', '--quiet', '--filter', 'label=com.docker.compose.project=' + project]).strip()
             except Exception as error:

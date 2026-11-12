@@ -4,6 +4,11 @@ Start with [Choose a local installation](https://docs.ledgence.com/getting-start
 Choose one route; each gives you an API, Console, PostgreSQL and a Python worker.
 The guides target the published **Ledgence 0.9.0** release.
 
+Current source is the **0.10.0 candidate**, with separate
+[release notes](releases/0.10.0.md) and
+[upgrade preparation](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
+It is not yet the verified distribution selected by the installation paths below.
+
 ## Choose what to install
 
 | Route | Choose it when | Guide |
@@ -132,6 +137,11 @@ ledgence local up
 
 `down` stops the services while preserving data. `up` reuses the saved kit,
 image and configuration. Installing a new CLI does not upgrade a saved stack.
+New development kits configure a durable `execution-artifacts` volume; old saved
+kits remain unchanged. Back up every configured durable store, including its
+hidden filesystem identity marker, with the database and configuration. Restore
+the complete execution store before any process first opens its target directory;
+worker caches and artifact spools are not backups.
 See [local operations](https://docs.ledgence.com/how-to/run-local-distribution)
 for log commands, separate installations, backups and explicit upgrades.
 

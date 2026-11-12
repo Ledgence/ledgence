@@ -54,11 +54,18 @@ projects/
     ...
 ```
 
+Run this from the checked-out repository to obtain the exact source revision:
+
+```sh
+git rev-parse HEAD
+```
+
+Copy its output into `LEDGENCE_SOURCE_REVISION` below, replacing the placeholder.
 For this unmodified release checkout, put these settings in the file:
 
 ```dotenv
 # Source commit recorded in the built image and Console.
-LEDGENCE_SOURCE_REVISION=b63c40edcb1e3f52035bcf87392129ed5f9132f2
+LEDGENCE_SOURCE_REVISION=REPLACE_WITH_CHECKED_OUT_GIT_REVISION
 # This walkthrough starts from an unmodified release checkout.
 LEDGENCE_SOURCE_DIRTY=false
 # The API listens on this port on your computer.
@@ -136,13 +143,21 @@ their program configuration.
 Stop the services from the same checkout:
 
 ```sh
-docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml down --timeout 65
+docker compose --env-file ../ledgence-source.env --project-name ledgence-source --file deploy/local/compose.yaml down
 ```
 
 This preserves the database, published programs, worker cache and callback
 records in named volumes. Start again with the same `up` command from step 3.
 Keep the environment file and project name consistent; the native CLI does not
 manage or upgrade this source-Compose deployment.
+
+Compose uses the grace periods saved in that release's configuration. A newer
+source kit also configures a durable execution-file volume and a transient spool;
+it gives the worker 65 seconds and the orchestrator 155 seconds to stop. Existing
+0.9.0 kits remain unchanged. Before changing versions, follow the
+[backup procedure](/how-to/run-local-distribution#preserve-configuration-and-data)
+and the [0.10 upgrade preparation](/how-to/upgrade-to-0-10), including the
+execution store's hidden identity marker when that store is configured.
 
 ## If the example does not finish
 

@@ -12,9 +12,11 @@ The console query migration adds compact queue and callable columns and creating
 
 The new API serializes revision and sequence values as decimal strings. Program versions remain opaque exact strings. Unknown timestamps and unrecorded process identity are null rather than estimates. Claimed time and worker elapsed time are labeled separately; neither queue age nor an active scheduling state proves that a process is currently executing.
 
-**Development source:** Console contract **15** adds bounded live execution history.
+**Development source:** Console contract **16** includes bounded live execution history
+and execution-file inspection and download.
 It requires matching server and assets from the development checkout; published
-0.9.0 continues to use contract 14. See [execution progress](execution-progress.md).
+0.9.0 continues to use contract 14. See [execution progress](execution-progress.md)
+and [execution files](execution-artifacts.md).
 
 ## Unified discovery and execution explorer
 

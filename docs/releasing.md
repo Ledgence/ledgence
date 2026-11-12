@@ -19,6 +19,11 @@ artifact reuse, timing evidence and exact-commit requirements.
 
 The current stable release is **0.9.0**. It adds resource admission, weighted offers, shared run budgets, worker poll plans and queue concurrency. See the [0.9.0 release notes](releases/0.9.0.md) and the [upgrade from 0.8.0](../docs-site/src/content/docs/how-to/upgrade-to-0-9.md).
 
+The current release candidate is **0.10.0**. Review its
+[candidate notes](releases/0.10.0.md) and
+[0.9-to-0.10 upgrade procedure](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
+Keep the latest stable identity above until every distribution channel is verified.
+
 For future releases, keep public metadata at the last verified version until all
 channels are complete. A source version bump or local build does not establish
 registry, native-bundle, image or website availability. Never reuse an older
@@ -75,20 +80,28 @@ local-step, callback, queue and resource state; interrupts actual transactional
 artifact DDL and proves rollback; migrates twice; rejects the old binary by schema;
 and restores into a fresh database before resuming work. It then uploads to a
 preserved root, checks old credentials cannot acquire the new write capability,
-and verifies bytes after restart. Receipt validation in
+and verifies bytes after restart. Its separate artifact-bearing restore must
+preserve a stopped candidate database and the entire filesystem store, including
+the hidden marker, then restore both to fresh locations before opening the store.
+Require matching store identity, immutable reference and downloaded bytes; spools
+and worker caches do not satisfy this recovery check. Receipt validation in
 `tools/release/upgrade_evidence.py` rejects missing phases or mismatched executables.
 
 The Linux Console candidate also runs `tools/check-artifact-s3.py` in owned mode,
 with the pinned external RustFS fixture replaced between write/read phases. Its
 receipt must report clean candidate source, the exact harness/image, passed
 phases, restart validation and cleanup. External-endpoint conformance mode cannot
-satisfy this release gate. The fixture is not distributed with Ledgence and does
-not establish AWS qualification. Candidate evidence is retained for 30 days.
+satisfy this release gate. This is a source/adapter gate using Cargo tests, not
+execution of the selected packaged binary. The fixture is not distributed with
+Ledgence and does not establish AWS qualification. Candidate evidence is retained
+for 30 days.
 
 
 Each successful job retains its verified archive, `SHA256SUMS` and provenance as
 an Actions artifact for 30 days. Artifact names distinguish the headless targets
-from `candidate-console-linux-x86_64`. These are reviewable candidates; the
+from `candidate-console-linux-x86_64-<job-attempt>`. Bundle, profile, upgrade and
+S3 evidence names include the producing job attempt so reruns preserve distinct
+uploads. These are reviewable candidates; the
 workflow does not create tags, promote branches or publish GitHub Releases.
 For a macOS bundle containing Console, use the local static build and PostgreSQL
 verification described above. Integration and capacity qualification remain
@@ -110,7 +123,7 @@ own documentation. The [CLI migration guide](cli.md) maps the command prefixes.
 
 The archive contains:
 
-- `bin/ledgence`, the unified CLI for program, worker, orchestrator, task, approval, MCP and local-stack commands;
+- `bin/ledgence`, the unified CLI for program, worker, orchestrator, task, workflow progress, artifacts, approval, MCP and local-stack commands;
 - `console/` containing verified static assets, manifest and retained notices (unless explicitly headless);
 - `runtime/ledgence/worker/`, preserving the native Python namespace;
 - `python-client/` with the tested wheel and source distribution;
@@ -171,6 +184,18 @@ base-package evidence. Live model providers and a separately installed Claude CL
 remain unexercised by the offline gates and must not be presented as qualified.
 See the [framework qualification procedure](../tools/framework_integrations/README.md).
 
+The framework jobs select the Console archive by the producing job's immutable
+artifact ID when `include_console=true`; only an explicitly headless partial
+candidate uses the headless archive. Each
+`candidate-framework-<framework>-<source-sha>-<job-attempt>` upload contains
+`qualification.json`, `sdk-summary.json` and `worker-summary.json`. The receipt
+binds the actual archive digest, provenance and inventory digests, executable,
+recursive helper inventory, source commit, package version and static-asset mode.
+SDK results must include positive test counts with no skips, failures, errors or
+forbidden attempts; real-worker evidence must contain every required case and
+successful cleanup (9 Claude cases, 11 each for PydanticAI and ADK). Logs and a
+successful shell exit do not replace these structured receipts.
+
 The expanded package profile also requires actual mixed-version checks: a legacy
 client publishes a small package to the candidate server; the candidate client
 publishes a small package to the prior server; an oversized-for-legacy package is
@@ -181,7 +206,17 @@ candidate and verified prior binaries/helpers, and retain its cleanup and
 executable-hash evidence. Small fixture archives alone do not qualify full SDK
 application packages or another platform's wheels.
 
-For 0.9, the Linux Console candidate gate verifies the published 0.8.0 archive against its pinned SHA256, boots the previous version on a disposable database, and passes the packaged candidate binary, Console and helper to the resource upgrade rehearsal. The separate 0.6.1 and 0.7.0 approval rehearsals remain required. The candidate job verifies a successful receipt for every predecessor against its executable and the packaged candidate executable. A missing receipt blocks the candidate even if the rehearsal shell exited successfully. Preserve evidence of external provider request counts across restore, outstanding source discovery after retention, actual denied budget authority and credential checks. Qualify the macOS bundle against the same previous stable release.
+For 0.10, the Linux Console candidate gate verifies the published 0.9.0 archive
+against its pinned SHA256, boots that version on a disposable database, and passes
+the packaged candidate binary, Console and helper to the artifact upgrade
+rehearsal. The 0.8.0 resource rehearsal and separate 0.6.1/0.7.0 approval rehearsals
+remain required. Verify a successful receipt for every predecessor against its
+executable and the selected candidate executable. A missing receipt blocks the
+candidate even if its shell exited successfully. Preserve external provider
+request counts across restore, retained source discovery, denied budget authority,
+credential checks and artifact-store restoration evidence. Qualify the macOS
+bundle against the same latest stable predecessor; Linux results do not establish
+another target's native execution.
 
 Compare the previous optimized release and the candidate on ordinary tasks and workflows. Separately measure enabled admission with a hot resource, independent resources, parked work, and late-arriving interactive traffic. Use the worker's default acquisition wait for the primary measurements. Repeat the matched timing trials with an explicit zero wait and report those results separately. For the independent-resource trials, record both the available worker slots and the combined reservation limits. Count successful business outcomes and independently observed calls. Record the hardware, arrival schedule, SQL and WAL collection boundaries, and measured percentile changes. Keep latency measurements separate from proxy diagnostics and do not extrapolate local measurements to fleet throughput. [Governed load procedure and measurement boundaries](resource-load-qualification.md).
 
@@ -201,8 +236,8 @@ Check that:
 Only an explicitly selected, validated candidate should later be promoted to a
 stable version. The bundle tooling does not publish or promote `main`. Registry
 packages use the separate gated [registry release workflow](registry-packages.md).
-For 0.9.0, that workflow qualifies and publishes both `ledgence-client` and
-`ledgence-worker` under the `pypi` environment, then checks their downloaded bytes
+For 0.10.0, that workflow must qualify and publish both `ledgence-client` and
+`ledgence-worker` under the `pypi` environment, then check their downloaded bytes
 and fresh registry installation together. Keep each Python project's own trusted
 publisher configured; the exact identity and initial setup procedure are
 documented in the registry guide. The standalone worker wheel remains separate from the native
@@ -211,7 +246,7 @@ package does not replace that runtime layout.
 Required legal notices do not require users to open-source their applications. See [dependency policy](dependencies.md) and
 [local image distribution boundaries](local-deployment.md#qualification-and-distribution-boundary).
 
-For 0.9.0, also retain program build/publication acceptance from the actual
+For 0.10.0, also retain program build/publication acceptance from the actual
 selected container image and matching CLI. It must prepare the native-dependency
 example for each qualified image architecture, verify immutable repetition and
 receipt recovery, execute it in the worker, and check persistence and execution
@@ -251,7 +286,7 @@ python3 tools/release/promote.py \
   --sha256 EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
   --repository /path/to/clean-release-checkout \
   --release-ref refs/heads/release-preparation \
-  --version 0.9.0 --output /tmp/ledgence-stable
+  --version 0.10.0 --output /tmp/ledgence-stable
 ```
 
 Take the expected SHA256 from the selected candidate's retained outer checksum
@@ -272,16 +307,16 @@ release remain separate decisions and operations. Preserve the candidate and its
 qualification reports alongside the new archive.
 
 Promotion executes the bundled binary, so promote Linux candidates on Linux.
-The manual `promote-bundle.yml` workflow downloads
-`candidate-console-linux-x86_64` from an explicit Actions run in this repository
+The manual `promote-bundle.yml` workflow downloads the selected
+`candidate-console-linux-x86_64-<job-attempt>` from an explicit Actions run in this repository
 and requires the selected archive's expected SHA256. Dispatch it on the matching
 annotated release tag after that commit is included in `main`:
 
 ```sh
-gh workflow run promote-bundle.yml --ref v0.9.0 \
+gh workflow run promote-bundle.yml --ref v0.10.0 \
   -f candidate_run=RUN_ID \
   -f candidate_sha256=EXPECTED_64_CHARACTER_CANDIDATE_SHA256 \
-  -f version=0.9.0
+  -f version=0.10.0
 ```
 
 It checks the clean tag identity and source-equivalent candidate, promotes the
@@ -290,6 +325,21 @@ existing bytes without rebuilding, and runs relocated execution with CPython
 does it retain `stable-linux-x86_64` with the stable archive, checksums and
 provenance for 30 days. It does not create tags or publish releases or packages.
 The candidate's integration and capacity qualification must already be complete.
+
+Before promotion, `tools/release/candidate_preflight.py` snapshots the successful
+candidate run's paginated job and artifact metadata. It requires every applicable
+job and the Console upgrade/profile/S3 steps, then freezes immutable artifact IDs
+using each successful job's own attempt. It downloads the selected archive and
+all three framework receipts separately and verifies their complete byte
+bindings. A framework-only rerun can reuse earlier receipts only when they bind
+the exact selected archive; a new binary or differently packaged archive rejects
+stale receipts even at the same source SHA. Different upload IDs are allowed only
+for a byte-identical complete archive, with both IDs retained in the evidence.
+
+Immediately before `promote.py`, the workflow rechecks the frozen run, jobs and
+artifacts. A new rerun or changed selection fails preflight and requires a fresh
+snapshot; it cannot silently fall back to an artifact with a matching name.
+These checks retain the source-equivalent ancestor/tree release-merge rule above.
 
 Run the promotion regression tests with
 `python3 -m unittest discover -s tools/release -p 'test_*.py' -v`.

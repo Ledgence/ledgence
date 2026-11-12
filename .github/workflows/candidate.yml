@@ -31,6 +31,9 @@ jobs:
     name: Headless candidate bundle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    outputs:
+      linux_artifact_id: ${{ steps.freeze.outputs.linux_artifact_id }}
+      linux_artifact_name: ${{ steps.freeze.outputs.linux_artifact_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -70,17 +73,28 @@ jobs:
         working-directory: ${{ runner.temp }}/ledgence-candidate
         run: shasum -a 256 -c SHA256SUMS
       - name: Retain verified headless candidate
+        id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: candidate-headless-${{ matrix.os }}
+          name: candidate-headless-${{ matrix.os }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ledgence-candidate/
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+      - name: Freeze the Linux headless artifact identity
+        id: freeze
+        if: matrix.os == 'ubuntu-24.04'
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          echo "linux_artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+          echo "linux_artifact_name=candidate-headless-ubuntu-24.04-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
   frameworks:
     name: Candidate framework recovery (${{ matrix.framework }})
-    needs: candidate
+    needs: [candidate, console]
+    # Console is optional only for explicitly partial headless qualification.
+    if: ${{ always() && needs.candidate.result == 'success' && ((inputs.include_console && needs.console.result == 'success') || (!inputs.include_console && needs.console.result == 'skipped')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -110,41 +124,24 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.14'
-      - name: Download this run's Linux headless candidate
+      - name: Download the selected immutable Linux candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: candidate-headless-ubuntu-24.04
+          artifact-ids: ${{ inputs.include_console && needs.console.outputs.artifact_id || needs.candidate.outputs.linux_artifact_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/framework-candidate-download
       - name: Verify candidate source and runtime before framework execution
         env:
           LEDGENCE_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          CANDIDATE_ARTIFACT_ID: ${{ inputs.include_console && needs.console.outputs.artifact_id || needs.candidate.outputs.linux_artifact_id }}
+          CANDIDATE_ARTIFACT_NAME: ${{ inputs.include_console && needs.console.outputs.artifact_name || needs.candidate.outputs.linux_artifact_name }}
+          CANDIDATE_MODE: ${{ inputs.include_console && 'static' || 'headless' }}
         run: |
-          (
-            cd "$RUNNER_TEMP/framework-candidate-download"
-            sha256sum --check SHA256SUMS
-          )
-          python - <<'PYTHON'
-          import hashlib, json, os, shutil, sys
-          from pathlib import Path
-          sys.path.insert(0, str(Path('tools/release').resolve()))
-          from verify import extract_archive, verify_files
-          root = Path(os.environ['RUNNER_TEMP'])
-          archives = list((root / 'framework-candidate-download').glob('*.tar.gz'))
-          assert len(archives) == 1
-          bundle = extract_archive(archives[0], root / 'framework-candidate-extracted', canonical_modes=True)
-          verify_files(bundle)
-          provenance = json.loads((bundle / 'provenance.json').read_text())
-          assert provenance['source_commit'] == os.environ['GITHUB_SHA'] and provenance['source_tree_clean'] is True
-          source = Path(os.environ['GITHUB_WORKSPACE']) / 'sdk/python'
-          def inventory(base, *, source=False):
-              return {str(p.relative_to(base)): hashlib.sha256(p.read_bytes()).hexdigest()
-                      for p in base.rglob('*') if p.is_file()
-                      and (not source or ('__pycache__' not in p.parts and p.suffix != '.pyc'))}
-          expected = {'ledgence/' + name: digest for name, digest in inventory(source / 'ledgence', source=True).items()}
-          assert expected and inventory(bundle / 'runtime') == expected
-          assert (bundle / 'runtime/ledgence/worker/bootstrap.py').is_file()
-          shutil.move(bundle, root / 'ledgence-framework-bundle')
-          PYTHON
+          python tools/release/framework_qualification.py prepare \
+            --download "$RUNNER_TEMP/framework-candidate-download" \
+            --extracted "$RUNNER_TEMP/framework-candidate-extracted" \
+            --bundle "$RUNNER_TEMP/ledgence-framework-bundle" \
+            --state "$RUNNER_TEMP/framework-candidate-state.json" --mode "$CANDIDATE_MODE"
           cat > "$RUNNER_TEMP/ledgence-psql" <<'SH'
           #!/bin/sh
           exec docker exec -i "$LEDGENCE_POSTGRES_CONTAINER" psql "$@"
@@ -166,45 +163,17 @@ jobs:
             --sdk-evidence "$RUNNER_TEMP/framework-sdk" --binaries "$FRAMEWORK_BINARIES" \
             --runner "$FRAMEWORK_HELPER_ROOT/ledgence/worker/bootstrap.py" \
             --psql "$RUNNER_TEMP/ledgence-psql" --evidence "$RUNNER_TEMP/framework-workers"
-          python - <<'PYTHON'
-          import hashlib, json, os, re
-          from pathlib import Path
-          root = Path(os.environ['RUNNER_TEMP'])
-          framework = os.environ['FRAMEWORK']
-          helper = Path(os.environ['FRAMEWORK_HELPER_ROOT']).resolve()
-          binary = Path(os.environ['FRAMEWORK_BINARIES']) / 'ledgence'
-          sdk = json.loads((root / 'framework-sdk/summary.json').read_text())
-          worker = json.loads((root / 'framework-workers/summary.json').read_text())
-          assert sdk['passed'] is True and sdk['framework'] == framework
-          assert sdk['tests'] > 0 and sdk['skipped'] == sdk['errors'] == sdk['failures'] == 0
-          assert not sdk['forbidden_attempts']
-          assert sdk['source_sha'] == os.environ['GITHUB_SHA'] and sdk['source_dirty'] is False
-          assert Path(sdk['helper_origin']).resolve() == helper / 'ledgence/worker/integrations' / (framework + '.py')
-          expected = {str(p.relative_to(helper)): hashlib.sha256(p.read_bytes()).hexdigest()
-                      for p in sorted((helper / 'ledgence/worker').rglob('*.py'))}
-          assert expected and sdk['helper_sha256'] == sdk['helper_sha256_after'] == expected
-          inventory = sdk['installed_inventory_sha256']
-          assert type(inventory) is str and re.fullmatch(r'[0-9a-f]{64}', inventory)
-          assert sdk['installed_inventory_sha256_after'] == worker['installed_inventory_sha256'] == inventory
-          assert worker['passed'] is True and worker['cleanup_complete'] is True and worker['framework'] == framework
-          assert worker['scenarios'] and all(case['passed'] is True for case in worker['scenarios'])
-          assert worker['binary_sha256'] == hashlib.sha256(binary.read_bytes()).hexdigest()
-          assert worker['source_sha'] == os.environ['GITHUB_SHA'] and worker['source_dirty'] is False
-          assert worker['helper_sha256'] == worker['helper_sha256_after'] == expected
-          assert sdk['python'].startswith('3.14.') and worker['python'] == sdk['python']
-          PYTHON
-      - name: Retain candidate framework summaries and logs
-        if: always()
+          python tools/release/framework_qualification.py receipt \
+            --state "$RUNNER_TEMP/framework-candidate-state.json" \
+            --bundle "$RUNNER_TEMP/ledgence-framework-bundle" --framework "$FRAMEWORK" \
+            --sdk "$RUNNER_TEMP/framework-sdk/summary.json" \
+            --worker "$RUNNER_TEMP/framework-workers/summary.json" \
+            --output "$RUNNER_TEMP/framework-qualification"
+      - name: Retain candidate framework qualification
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-framework-${{ matrix.framework }}-${{ github.sha }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/framework-sdk/*.json
-            ${{ runner.temp }}/framework-sdk/*.stdout
-            ${{ runner.temp }}/framework-sdk/*.stderr
-            ${{ runner.temp }}/framework-workers/summary.json
-            ${{ runner.temp }}/framework-workers/*.jsonl
-            ${{ runner.temp }}/framework-workers/*.log
+          path: ${{ runner.temp }}/framework-qualification/
           if-no-files-found: error
           retention-days: 30
 
@@ -213,6 +182,9 @@ jobs:
     if: inputs.include_console
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_name: ${{ steps.freeze.outputs.artifact_name }}
     services:
       postgres:
         image: postgres:18.6@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
@@ -338,7 +310,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: candidate-program-profiles-linux-x86_64
+          name: candidate-program-profiles-linux-x86_64-${{ github.run_attempt }}
           path: ${{ runner.temp }}/program-profiles-evidence/summary.json
           if-no-files-found: error
           retention-days: 30
@@ -350,7 +322,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: candidate-artifact-s3-linux-x86_64
+          name: candidate-artifact-s3-linux-x86_64-${{ github.run_attempt }}
           path: ${{ runner.temp }}/artifact-s3/
           if-no-files-found: ignore
           retention-days: 30
@@ -358,17 +330,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: candidate-upgrade-linux-x86_64
+          name: candidate-upgrade-linux-x86_64-${{ github.run_attempt }}
           path: ${{ runner.temp }}/approval-upgrade/evidence/
           if-no-files-found: ignore
           retention-days: 30
       - name: Retain verified Console candidate
+        id: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: candidate-console-linux-x86_64
+          name: candidate-console-linux-x86_64-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ledgence-candidate/
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+      - name: Freeze the Console artifact identity
+        id: freeze
+        run: echo "artifact_name=candidate-console-linux-x86_64-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 # Retained Actions artifacts are candidates, not public GitHub Releases.
 # Integration and capacity qualification remain separate required gates.

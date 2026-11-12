@@ -233,7 +233,7 @@ const COMMANDS: &[Leaf] = &[
         group: "local",
         name: "down",
         options: "[--directory DIR]",
-        description: "Stop the saved Compose project with a 65-second shutdown grace period. Preserve its named volumes, program store, configuration, and version for the next up. No volume deletion or automatic upgrade is performed.",
+        description: "Stop the saved Compose project using its per-service shutdown grace periods. Preserve its named volumes, program store, configuration, and version for the next up. No volume deletion or automatic upgrade is performed.",
     },
     Leaf {
         group: "mcp",

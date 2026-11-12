@@ -29,6 +29,8 @@ cargo build -p ledgence-cli --locked
 ./target/debug/ledgence worker --help
 ./target/debug/ledgence orchestrator --help
 ./target/debug/ledgence task --help
+./target/debug/ledgence workflow --help
+./target/debug/ledgence artifacts --help
 ./target/debug/ledgence approval --help
 ./target/debug/ledgence mcp --help
 ./target/debug/ledgence local --help
@@ -51,9 +53,9 @@ explicit runtime configuration. See [observability](observability.md) and
 
 ## Command groups
 
-Use `ledgence <group> <command> --help` for the supported flags. These groups
-are available in 0.9.0.
-MCP requires its build feature.
+Use `ledgence <group> <command> --help` for the supported flags. The groups
+below describe current development source. Commands marked development are absent
+from published 0.9.0 binaries. MCP requires its build feature.
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
@@ -61,14 +63,17 @@ MCP requires its build feature.
 | `program` | `new`, `build`, `publish`, `register` | Create source projects, prepare, publish and register immutable programs; `build` requires local Docker and an explicit worker target. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
-| `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
+| `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel`, `progress` | Submit and inspect task executions; `progress` requires development components. |
+| `workflow` | `progress` | Read or follow workflow lifecycle history (development). |
+| `artifacts` | `put`, `inspect`, `list`, `download`, `status`, `reconcile`, `replace` | Upload execution files and inspect, retrieve or reconcile immutable references (development; configured storage required). |
 | `approval` | `inbox`, `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
 | `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
 
-There is no separate `workflow` command group. Workflow and event operations
-are available through the [HTTP API](http-orchestration.md),
-[Python client](../sdk/python-client/README.md), Console and MCP. Use the
-appropriate interface for the operation you need.
+The development `workflow` group currently provides progress reads only. Workflow
+submission, cancellation and event operations use the [HTTP API](http-orchestration.md)
+or [Python client](../sdk/python-client/README.md), with supported operations also
+available through Console and MCP. See [execution progress](execution-progress.md)
+and [execution files](execution-artifacts.md) for their prerequisites and limits.
 
 ## Create a Python program
 
@@ -171,7 +176,7 @@ set, otherwise `$HOME/.local/share/ledgence/local`.
 | `local up` | Copy and verify the kit on first use, start the saved project, and wait for Compose readiness. Print the API/Console URLs, scope, image, context and actual worker platform. |
 | `local status` | Display all service states and the saved installation settings without starting containers. |
 | `local logs` | Show the most recent 100 lines per service. Use `--tail 1..10000`, `--follow`, or `--service postgres\|migrate\|orchestrator\|worker`. |
-| `local down` | Stop that project with a 65-second grace period, preserving its database, program store, cache, and configuration. |
+| `local down` | In the 0.10 candidate, honor each service’s saved Compose grace period, preserving the database, program store, execution artifact store, cache, and configuration. The published 0.9 CLI uses a 65-second timeout. |
 
 The first successful initialization saves a unique Compose project identity,
 the kit version and immutable image digest, Docker context/endpoint, port, and

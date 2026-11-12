@@ -139,7 +139,7 @@ It never holds a tool request open for the execution's entire lifetime.
 
 ## Console
 
-Matching development Console contract **15** adds a live **Lifecycle** timeline
+Matching development Console contract **16** includes a live **Lifecycle** timeline
 under **Trace** in task details and **General** in workflow details. The browser uses a metadata-authorized, same-origin
 `POST /v1/console/executions/progress` with the installation scope supplied by the
 server. The `execution_progress` capability is false when the complete reader is

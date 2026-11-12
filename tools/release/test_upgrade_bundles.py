@@ -110,6 +110,35 @@ class UpgradeBundleTests(unittest.TestCase):
             self.report_path.write_text(json.dumps(report))
             with self.assertRaises(ValueError): verify(self.root)
 
+    def test_old_restart_only_or_damaged_artifact_restore_receipts_fail(self):
+        original = json.loads(self.report_path.read_text())
+        damages = (
+            lambda artifacts: artifacts.pop("backup_restore"),
+            lambda artifacts: artifacts["backup_restore"].update(phases=["quiesced", "same_key_replayed"]),
+            lambda artifacts: artifacts["backup_restore"].update(all_writers_stopped=False),
+            lambda artifacts: artifacts["backup_restore"].update(fresh_database=False),
+            lambda artifacts: artifacts["backup_restore"].update(new_store_path=False),
+            lambda artifacts: artifacts["backup_restore"].pop("fresh_empty_spool"),
+            lambda artifacts: artifacts["backup_restore"].update(fresh_empty_spool=False),
+            lambda artifacts: artifacts["backup_restore"].update(no_new_generation=False),
+            lambda artifacts: artifacts["backup_restore"].update(database_dump_sha256="missing"),
+            lambda artifacts: artifacts["backup_restore"]["store_inventory"].pop(".ledgence-artifact-store"),
+            lambda artifacts: artifacts["backup_restore"].update(restored_inventory_sha256="0" * 64),
+            lambda artifacts: artifacts["backup_restore"].update(download_sha256="0" * 64),
+            lambda artifacts: artifacts["backup_restore"]["rejected_copies"].pop("foreign_marker"),
+            lambda artifacts: artifacts["backup_restore"]["rejected_copies"]["missing_marker"].update(catalog_unchanged=False),
+            lambda artifacts: artifacts["backup_restore"]["rejected_copies"]["missing_marker"].pop("fresh_empty_spool"),
+            lambda artifacts: artifacts["backup_restore"]["rejected_copies"]["foreign_marker"].update(fresh_empty_spool=False),
+        )
+        for index, damage in enumerate(damages):
+            with self.subTest(damage=index):
+                report = copy.deepcopy(original)
+                damage(report["exercise"]["artifacts"])
+                self.report_path.write_text(json.dumps(report))
+                with self.assertRaises(ValueError):
+                    verify(self.root)
+        self.report_path.write_text(json.dumps(original))
+
     def test_wrong_published_identity_and_dirty_candidate_fail_even_resealed(self):
         for directory, key, value in ((self.root / "previous-0.9.0", "release_commit", "d" * 40),
                                       (self.candidate, "source_tree_clean", False)):
