@@ -10,10 +10,21 @@ import tomllib
 
 from .console_bundle import validate, unique
 
+# These are the identities inside the checksum-pinned published archives.
+# 0.8.0 Linux was packaged at the release merge; macOS retained its ancestor
+# build with the identical source tree. Keep both targets explicitly pinned.
 PREDECESSORS = {
-    "0.8.0": ("e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", "cf1804ea98d7a18c4608b9b3082646fa41c505c4", 7),
-    "0.9.0": ("c5589aaae95d1dd944372beaf27847702a96e13c", "c5589aaae95d1dd944372beaf27847702a96e13c", 14),
+    "0.8.0": {
+        "x86_64-unknown-linux-gnu": ("e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", "e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", 7),
+        "aarch64-apple-darwin": ("e95f0baac01d443e0e72c3ffa5010ef5a28c6e6b", "cf1804ea98d7a18c4608b9b3082646fa41c505c4", 7),
+    },
+    "0.9.0": {
+        "x86_64-unknown-linux-gnu": ("c5589aaae95d1dd944372beaf27847702a96e13c", "c5589aaae95d1dd944372beaf27847702a96e13c", 14),
+        "aarch64-apple-darwin": ("c5589aaae95d1dd944372beaf27847702a96e13c", "c5589aaae95d1dd944372beaf27847702a96e13c", 14),
+    },
 }
+NATIVE_TARGETS = frozenset(target for targets in PREDECESSORS.values() for target in targets)
+
 
 
 def digest(path):
@@ -61,6 +72,9 @@ def bundle(directory, *, predecessor=None, execute=True):
     if "candidate-provenance.json" in files:
         qualified = json.loads((directory / "candidate-provenance.json").read_text(), object_pairs_hook=unique)
     version, commit = record.get("package_version"), record.get("source_commit")
+    target = record.get("target")
+    if not isinstance(target, str) or target not in NATIVE_TARGETS or qualified.get("target") != target:
+        raise ValueError("native bundle target is unsupported or differs from candidate provenance")
     if (not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version)
             or not isinstance(commit, str) or not re.fullmatch(r"[a-f0-9]{40}", commit)
             or record.get("source_tree_clean") is not True
@@ -70,7 +84,10 @@ def bundle(directory, *, predecessor=None, execute=True):
         raise ValueError("native bundle provenance is not clean and version-bound")
     contract = 16
     if predecessor is not None:
-        expected_release, expected_commit, contract = PREDECESSORS[predecessor]
+        expected = PREDECESSORS.get(predecessor, {}).get(target)
+        if expected is None:
+            raise ValueError("unsupported predecessor release target")
+        expected_release, expected_commit, contract = expected
         if (version != predecessor or commit != expected_commit
                 or record.get("release_tag") != "v" + predecessor
                 or record.get("release_commit") != expected_release):
@@ -84,7 +101,7 @@ def bundle(directory, *, predecessor=None, execute=True):
         output = subprocess.check_output([directory / "bin/ledgence", "--version"], text=True, timeout=20).strip()
         if output != "ledgence " + version:
             raise ValueError("native executable version differs from provenance")
-    return {"version": version, "source_commit": commit, "release_commit": record.get("release_commit"), "console_contract": console["console_contract_version"],
+    return {"version": version, "target": target, "source_commit": commit, "release_commit": record.get("release_commit"), "console_contract": console["console_contract_version"],
             "manifest_sha256": digest(directory / "SHA256SUMS"), "verified_files": files}
 
 
@@ -102,6 +119,8 @@ def inputs(previous, binaries, console, runner, *, predecessor, execute=True):
         raise ValueError("upgrade requires distinct extracted bundles and their bundled helpers")
     old = bundle(previous, predecessor=predecessor, execute=execute)
     new = bundle(candidate, execute=execute)
+    if old["target"] != new["target"]:
+        raise ValueError("native upgrade requires matching predecessor and candidate targets")
     source = Path(__file__).resolve().parents[2]
     expected = tomllib.loads((source / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True, timeout=10).strip()
@@ -109,7 +128,7 @@ def inputs(previous, binaries, console, runner, *, predecessor, execute=True):
         raise ValueError("upgrade qualification requires a clean source checkout for the candidate and harness")
     if new["source_commit"] != source_commit or new["version"] != expected or old["verified_files"]["bin/ledgence"] == new["verified_files"]["bin/ledgence"]:
         raise ValueError("candidate version or binary does not match selected upgrade")
-    return {"old_release_commit": old["release_commit"], "old_source_commit": old["source_commit"], "old_manifest_sha256": old["manifest_sha256"],
+    return {"target": new["target"], "old_release_commit": old["release_commit"], "old_source_commit": old["source_commit"], "old_manifest_sha256": old["manifest_sha256"],
             "old_verified_files": old["verified_files"], "new_manifest_sha256": new["manifest_sha256"],
             "new_verified_files": new["verified_files"], "new_source_commit": new["source_commit"], "new_source_clean": True,
             "new_binary_sha256": new["verified_files"]["bin/ledgence"],
