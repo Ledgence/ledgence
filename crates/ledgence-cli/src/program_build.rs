@@ -9,7 +9,7 @@ use config::{Config, Options};
 use docker::{Docker, DockerProcess, Process};
 use ledgence_adapter_artifact::{ArtifactLimits, pack_directory};
 use ledgence_orchestration_api::{ContractError, Result, console::ProgramDisplayMetadata};
-use ledgence_worker_api::{ProgramDescriptor, ProgramManifest};
+use ledgence_worker_api::{ProgramDescriptor, ProgramManifest, ProgramPackageProfile};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -28,10 +28,13 @@ fn operational(message: impl Into<String>) -> ContractError {
     ContractError::Unavailable(message.into())
 }
 
-// Two hash maps can each contain nearly 4096 portable paths of up to 1024
-// bytes, plus SHA-256 values and JSON framing. This bound covers that supported
-// package shape while still rejecting unexpectedly large recovery metadata.
-const MAX_BUILD_RECEIPT_BYTES: u64 = 16 * 1024 * 1024;
+const BUILD_PROFILE: ProgramPackageProfile = ProgramPackageProfile::Entries8192V1;
+
+// The source and prepared hash maps can occupy 26,581,926 encoded bytes at
+// the expanded entry bound, including quoted prepared paths. Configuration,
+// metadata and framing have separate bounds. The output path has no portable
+// length bound, so the final encoded-size check remains an independent limit.
+const MAX_BUILD_RECEIPT_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -190,7 +193,8 @@ async fn execute(options: Options, process: &impl Process) -> Result<BuildResult
     fs::write(
         control.join("build.json"),
         serde_json::to_vec(
-            &serde_json::json!({"manifest": manifest, "requirements": plan.requirements.is_some()}),
+            &serde_json::json!({"manifest": manifest, "requirements": plan.requirements.is_some(),
+                "limits": BUILD_PROFILE.limits()}),
         )
         .map_err(|_| operational("cannot encode preparation plan"))?,
     )
@@ -321,7 +325,7 @@ fn finalize(
         ));
     }
     let prepared = results.join("prepared");
-    let packed = pack_directory(&prepared, &ArtifactLimits::default())
+    let packed = pack_directory(&prepared, &ArtifactLimits::for_profile(BUILD_PROFILE))
         .map_err(|e| invalid(e.to_string()))?;
     let actual_manifest: ProgramManifest = serde_json::from_slice(&files::read_regular(
         &prepared.join("ledgence-program.json"),

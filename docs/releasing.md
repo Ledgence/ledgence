@@ -162,6 +162,25 @@ restart qualification and representative load/soak scenarios. Packaging evidence
 covers only the gates the packaging tool actually executes; it is not a
 substitute for the integration and capacity reports.
 
+For the development adapters, also run the installed-framework and real-worker
+qualification with each selected candidate's bundled helper. The three optional
+SDK profiles have separate outcomes; no SDK may be silently omitted. Preserve
+full/partial replay, committed-but-lost acknowledgement, unaccepted crash,
+handled-failure cleanup, warm reuse, nested-control rejection and dependency-free
+base-package evidence. Live model providers and a separately installed Claude CLI
+remain unexercised by the offline gates and must not be presented as qualified.
+See the [framework qualification procedure](../tools/framework_integrations/README.md).
+
+The expanded package profile also requires actual mixed-version checks: a legacy
+client publishes a small package to the candidate server; the candidate client
+publishes a small package to the prior server; an oversized-for-legacy package is
+rejected before PUT; the candidate publishes, registers and executes an expanded
+package; the prior worker rejects it before execution. Exercise cold cache, warm
+reuse and cache reopening. Use `tools/check-program-profiles.py` with the exact
+candidate and verified prior binaries/helpers, and retain its cleanup and
+executable-hash evidence. Small fixture archives alone do not qualify full SDK
+application packages or another platform's wheels.
+
 For 0.9, the Linux Console candidate gate verifies the published 0.8.0 archive against its pinned SHA256, boots the previous version on a disposable database, and passes the packaged candidate binary, Console and helper to the resource upgrade rehearsal. The separate 0.6.1 and 0.7.0 approval rehearsals remain required. The candidate job verifies a successful receipt for every predecessor against its executable and the packaged candidate executable. A missing receipt blocks the candidate even if the rehearsal shell exited successfully. Preserve evidence of external provider request counts across restore, outstanding source discovery after retention, actual denied budget authority and credential checks. Qualify the macOS bundle against the same previous stable release.
 
 Compare the previous optimized release and the candidate on ordinary tasks and workflows. Separately measure enabled admission with a hot resource, independent resources, parked work, and late-arriving interactive traffic. Use the worker's default acquisition wait for the primary measurements. Repeat the matched timing trials with an explicit zero wait and report those results separately. For the independent-resource trials, record both the available worker slots and the combined reservation limits. Count successful business outcomes and independently observed calls. Record the hardware, arrival schedule, SQL and WAL collection boundaries, and measured percentile changes. Keep latency measurements separate from proxy diagnostics and do not extrapolate local measurements to fleet throughput. [Governed load procedure and measurement boundaries](resource-load-qualification.md).

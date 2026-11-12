@@ -467,3 +467,25 @@ It creates isolated disposable local resources and does not call AWS. RustFS and
 its image components retain their own licenses; the fixture is neither a Ledgence
 dependency nor a redistributed Ledgence image. Its results establish a local
 compatibility profile, not universal S3 or AWS qualification.
+
+## Optional agent framework qualification
+
+The optional adapters expose no vendor SDK types in the neutral Ledgence API.
+`ledgence-worker` still has no runtime dependencies. PydanticAI, Google ADK and
+Claude Agent SDK are installed only in application programs that choose them, or
+in isolated qualification environments. No framework is a default or a dependency
+of the Rust platform.
+
+The [fixture inventory](../tools/framework_integrations/reviewed-dependencies.json)
+and [hash-pinned qualification procedure](../tools/framework_integrations/README.md)
+record the exact SDK and transitive graphs used by the tests. These test-only
+graphs retain their individual licenses. ADK includes the existing scoped MPL-2.0
+`certifi` component; its terms do not relicense separate application code. This
+does not broaden the Cargo allowlist. Applications distributing prepared packages
+must retain the notices for their selected dependencies.
+
+Claude qualification builds the official, hash-verified Python SDK source without
+changing its declared backend or source. It verifies the pure-Python inventory
+and MIT license, and excludes the separately supplied native CLI. Qualification
+of this open-source SDK boundary is not qualification or redistribution permission
+for a separate CLI or provider service. Runtime and provider terms remain separate.

@@ -11,11 +11,13 @@ mod archive;
 mod cache;
 mod error;
 mod filesystem;
+mod inspection;
 mod publish;
 mod store;
 
 pub use cache::FileArtifactCache;
-use ledgence_worker_api::{Error, ErrorKind, ProgramDescriptor};
+pub use inspection::ZipProgramPackageInspector;
+use ledgence_worker_api::{Error, ErrorKind, ProgramDescriptor, ProgramPackageProfile};
 pub use publish::{
     FileProgramArtifactPublisher, PackedProgram, pack_directory, persist_archive, publish_directory,
 };
@@ -40,7 +42,13 @@ pub struct ArtifactLimits {
 }
 impl Default for ArtifactLimits {
     fn default() -> Self {
-        let publication = ledgence_worker_api::PublicationLimits::default();
+        Self::for_profile(ProgramPackageProfile::Legacy4096)
+    }
+}
+impl ArtifactLimits {
+    /// Select a fixed package profile without changing cache or request budgets.
+    pub fn for_profile(profile: ProgramPackageProfile) -> Self {
+        let publication = profile.limits();
         Self {
             max_archive_bytes: publication.max_archive_bytes,
             max_expanded_bytes: publication.max_expanded_bytes,
@@ -52,8 +60,7 @@ impl Default for ArtifactLimits {
             request_timeout: Duration::from_secs(60),
         }
     }
-}
-impl ArtifactLimits {
+
     pub fn validate(&self) -> ledgence_worker_api::Result<()> {
         if self.max_archive_bytes == 0
             || self.max_archive_bytes > u32::MAX as u64

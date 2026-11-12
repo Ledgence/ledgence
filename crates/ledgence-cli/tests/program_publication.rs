@@ -1,6 +1,6 @@
 //! Exercise the actual CLI process against an explicitly controlled HTTP peer.
-use ledgence_adapter_artifact::{ArtifactLimits, pack_directory};
-use ledgence_worker_api::PublicationLimits;
+use ledgence_adapter_artifact::{ArtifactLimits, ZipProgramPackageInspector, pack_directory};
+use ledgence_worker_api::{ProgramPackageInspector, ProgramPackageProfile, PublicationLimits};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -69,6 +69,8 @@ struct Peer {
     puts: Arc<Mutex<Vec<Vec<u8>>>>,
     registrations: Arc<Mutex<Vec<Value>>>,
     requests: Arc<AtomicUsize>,
+    headers: Arc<Mutex<Vec<String>>>,
+    expanded_entries: Arc<Mutex<Option<u64>>>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Drop for Peer {
@@ -78,17 +80,28 @@ impl Drop for Peer {
 }
 impl Peer {
     async fn start(mode: Mode, fail_first_registration: bool) -> Self {
+        Self::with_profile(mode, fail_first_registration, None).await
+    }
+    async fn with_profile(
+        mode: Mode,
+        fail_first_registration: bool,
+        expanded_entries: Option<u64>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let puts = Arc::new(Mutex::new(Vec::new()));
         let registrations = Arc::new(Mutex::new(Vec::new()));
         let requests = Arc::new(AtomicUsize::new(0));
+        let headers = Arc::new(Mutex::new(Vec::new()));
+        let expanded_entries = Arc::new(Mutex::new(expanded_entries));
         let (put_records, registration_records, request_count) =
             (puts.clone(), registrations.clone(), requests.clone());
+        let (header_records, selected_entries) = (headers.clone(), expanded_entries.clone());
         let task = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let (header, body) = read(&mut socket).await;
+                header_records.lock().unwrap().push(header.clone());
                 request_count.fetch_add(1, Ordering::SeqCst);
                 let route = header.lines().next().unwrap();
                 if route.starts_with("GET /v1/programs/publication-capabilities ") {
@@ -96,7 +109,14 @@ impl Peer {
                         respond(&mut socket, 404, json!({"code":"route_not_found"})).await;
                         continue;
                     }
-                    respond(&mut socket, 200, json!({"enabled":true,"registration_enabled":true,"mode":"immutable", "limits":PublicationLimits::default(),"max_concurrent_uploads":2,"transfer_timeout_ms":120000})).await;
+                    let entries = *selected_entries.lock().unwrap();
+                    let mut limits = entries.map_or_else(PublicationLimits::default, |_| {
+                        ProgramPackageProfile::Entries8192V1.limits()
+                    });
+                    if let Some(entries) = entries {
+                        limits.max_entries = entries;
+                    }
+                    respond_with_profile(&mut socket, 200, json!({"enabled":true,"registration_enabled":true,"mode":"immutable", "limits":limits,"max_concurrent_uploads":2,"transfer_timeout_ms":120000}), entries.is_some()).await;
                 } else if route.starts_with("PUT /v1/programs/publication-example/1.0.0/artifact ")
                 {
                     assert!(
@@ -159,6 +179,8 @@ impl Peer {
             puts,
             registrations,
             requests,
+            headers,
+            expanded_entries,
             task,
         }
     }
@@ -194,14 +216,38 @@ async fn read(socket: &mut TcpStream) -> (String, Vec<u8>) {
     (header, bytes[end..end + size].to_vec())
 }
 async fn respond(socket: &mut TcpStream, status: u16, value: Value) {
+    respond_with_profile(socket, status, value, false).await;
+}
+async fn respond_with_profile(socket: &mut TcpStream, status: u16, value: Value, expanded: bool) {
     let body = serde_json::to_vec(&value).unwrap();
+    let profile = if expanded {
+        "x-ledgence-program-package-profile: entries-8192-v1\r\n"
+    } else {
+        ""
+    };
     let header = format!(
-        "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nRequest-Id: req-publication-test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\n{profile}Request-Id: req-publication-test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     socket.write_all(header.as_bytes()).await.unwrap();
     socket.write_all(&body).await.unwrap();
     socket.shutdown().await.unwrap();
+}
+fn large_source() -> tempfile::TempDir {
+    let directory = source();
+    // Actual empty directories are ZIP entries too. Include app and manifest
+    // to make a real package one entry above the released legacy profile.
+    for i in 0..PublicationLimits::default().max_entries - 1 {
+        fs::create_dir(directory.path().join(format!("prepared/entry-{i:05}"))).unwrap();
+    }
+    directory
+}
+fn profile(header: &str) -> Option<&str> {
+    header.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("x-ledgence-program-package-profile")
+            .then(|| value.trim())
+    })
 }
 fn path(path: &Path) -> &str {
     path.to_str().unwrap()
@@ -241,6 +287,175 @@ async fn filesystem_publish_preserves_the_existing_plain_descriptor_output() {
         store
             .join("programs/publication-example/1.0.0/descriptor.json")
             .is_file()
+    );
+}
+#[tokio::test]
+async fn filesystem_publish_explicitly_uses_the_expanded_profile() {
+    let fixture = large_source();
+    let store = fixture.path().join("store");
+    let output = invoke(&[
+        "program",
+        "publish",
+        "--source",
+        path(&fixture.path().join("prepared")),
+        "--store",
+        path(&store),
+    ])
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let descriptor: ledgence_worker_api::ProgramDescriptor =
+        serde_json::from_slice(&output.stdout).unwrap();
+    let archive = fs::read(store.join(format!("blobs/{}.zip", &descriptor.digest.0[7..]))).unwrap();
+    let inspected = ZipProgramPackageInspector
+        .inspect(
+            &descriptor,
+            &archive,
+            &ProgramPackageProfile::Entries8192V1.limits(),
+        )
+        .unwrap();
+    assert_eq!(
+        inspected.entry_count,
+        PublicationLimits::default().max_entries + 1
+    );
+    assert!(
+        ZipProgramPackageInspector
+            .inspect(&descriptor, &archive, &PublicationLimits::default())
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn small_publications_use_the_selected_response_profile_even_with_lower_entry_bounds() {
+    // An expanded peer can report a stricter entry ceiling than legacy. Its
+    // response header, not the numeric maximum, selects the PUT profile.
+    for entries in [None, Some(2)] {
+        let fixture = source();
+        let peer = Peer::with_profile(Mode::Success, false, entries).await;
+        let output = invoke(&[
+            "program",
+            "publish",
+            "--source",
+            path(&fixture.path().join("prepared")),
+            "--server",
+            &peer.url,
+        ])
+        .await;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(peer.puts.lock().unwrap().len(), 1);
+        for header in peer.headers.lock().unwrap().iter() {
+            let expected = if header.starts_with("GET ") || entries.is_some() {
+                Some("entries-8192-v1")
+            } else {
+                None
+            };
+            assert_eq!(profile(header), expected);
+        }
+    }
+}
+
+#[tokio::test]
+async fn legacy_and_stricter_expanded_peers_reject_large_packages_before_put() {
+    for entries in [None, Some(PublicationLimits::default().max_entries)] {
+        let fixture = large_source();
+        let peer = Peer::with_profile(Mode::Success, false, entries).await;
+        let output = invoke(&[
+            "program",
+            "publish",
+            "--source",
+            path(&fixture.path().join("prepared")),
+            "--server",
+            &peer.url,
+        ])
+        .await;
+        assert!(!output.status.success());
+        let result = report(&output);
+        assert_eq!(result["phase"], "prepared");
+        assert_eq!(result["publication_outcome"], "unconfirmed");
+        assert!(peer.puts.lock().unwrap().is_empty());
+        assert!(
+            peer.headers
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|h| h.starts_with("GET "))
+        );
+        let receipt = Path::new(result["receipt"].as_str().unwrap());
+        assert!(receipt.is_file());
+        assert!(receipt.with_file_name("artifact.zip").is_file());
+    }
+}
+
+#[tokio::test]
+async fn expanded_receipt_resume_renegotiates_and_keeps_the_exact_archive_on_downgrade() {
+    let fixture = large_source();
+    let peer = Peer::with_profile(
+        Mode::DisconnectFirst,
+        false,
+        Some(ProgramPackageProfile::Entries8192V1.limits().max_entries),
+    )
+    .await;
+    let first = invoke(&[
+        "program",
+        "publish",
+        "--source",
+        path(&fixture.path().join("prepared")),
+        "--server",
+        &peer.url,
+    ])
+    .await;
+    assert!(!first.status.success());
+    let initial = report(&first);
+    assert_eq!(initial["publication_outcome"], "unknown");
+    let receipt = Path::new(initial["receipt"].as_str().unwrap());
+    let archive = fs::read(receipt.with_file_name("artifact.zip")).unwrap();
+    assert_eq!(
+        peer.puts.lock().unwrap().as_slice(),
+        std::slice::from_ref(&archive)
+    );
+    fs::write(
+        fixture.path().join("prepared/app.py"),
+        "source changed after first upload",
+    )
+    .unwrap();
+
+    *peer.expanded_entries.lock().unwrap() = None;
+    let rejected = invoke(&["program", "publish", "--resume", path(receipt)]).await;
+    assert!(!rejected.status.success());
+    assert_eq!(report(&rejected)["publication_outcome"], "unconfirmed");
+    assert_eq!(peer.puts.lock().unwrap().len(), 1);
+    assert_eq!(
+        fs::read(receipt.with_file_name("artifact.zip")).unwrap(),
+        archive
+    );
+
+    *peer.expanded_entries.lock().unwrap() =
+        Some(ProgramPackageProfile::Entries8192V1.limits().max_entries);
+    let resumed = invoke(&["program", "publish", "--resume", path(receipt)]).await;
+    assert!(
+        resumed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&resumed.stderr)
+    );
+    assert_eq!(report(&resumed)["publication_outcome"], "confirmed");
+    let bodies = peer.puts.lock().unwrap();
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(bodies[0], bodies[1]);
+    assert_eq!(bodies[1], archive);
+    assert!(
+        peer.headers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|h| h.starts_with("PUT "))
+            .all(|header| profile(header) == Some("entries-8192-v1"))
     );
 }
 #[tokio::test]

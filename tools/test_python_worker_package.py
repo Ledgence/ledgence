@@ -61,7 +61,8 @@ class WorkerPackagePolicyTests(unittest.TestCase):
                     gate.verify_distribution(self.wheel(files))
 
     def test_rejects_different_runtime_or_license_bytes(self):
-        for name in ("ledgence/worker/workflow.py", self.prefix + "licenses/LICENSE"):
+        for name in ("ledgence/worker/workflow.py", "ledgence/worker/integrations/_core.py",
+                     self.prefix + "licenses/LICENSE"):
             with self.subTest(name=name):
                 files = dict(self.files)
                 files[name] += b"changed"
@@ -69,7 +70,8 @@ class WorkerPackagePolicyTests(unittest.TestCase):
                     gate.verify_distribution(self.wheel(files))
 
     def test_rejects_root_namespace_and_unrelated_code_ownership(self):
-        for name in ("ledgence/__init__.py", "ledgence/client/__init__.py", "aiohttp/__init__.py",
+        for name in ("ledgence/__init__.py", "ledgence/client/__init__.py", "aiohttp/__init__.py", "pydantic_ai/__init__.py",
+                     "ledgence/worker/integrations/_bundled/claude",
                      self.prefix + "entry_points.txt"):
             with self.subTest(name=name):
                 with self.assertRaisesRegex(ValueError, "unexpected files"):

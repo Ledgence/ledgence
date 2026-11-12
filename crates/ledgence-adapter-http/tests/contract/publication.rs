@@ -6,6 +6,47 @@ use ledgence_worker_api::{
 };
 use sha2::{Digest as _, Sha256};
 
+#[path = "publication/profiles.rs"]
+mod profiles;
+
+/// This inspector is only for transport fixtures with deliberately opaque bytes.
+/// Profile integration tests below inject the production ZIP inspector instead.
+pub(super) struct FixtureInspector;
+impl ledgence_worker_api::ProgramPackageInspector for FixtureInspector {
+    fn inspect(
+        &self,
+        descriptor: &ProgramDescriptor,
+        archive: &[u8],
+        limits: &PublicationLimits,
+    ) -> ledgence_worker_api::PublicationResult<ledgence_worker_api::ProgramPackageInspection> {
+        if descriptor.size != archive.len() as u64
+            || descriptor.digest.0 != format!("sha256:{:x}", Sha256::digest(archive))
+        {
+            return Err(ledgence_worker_api::PublicationError::new(
+                PublicationErrorKind::InvalidArtifact,
+                "transport fixture mismatch",
+            ));
+        }
+        if descriptor.size > limits.max_archive_bytes {
+            return Err(ledgence_worker_api::PublicationError::new(
+                PublicationErrorKind::TooLarge,
+                "transport fixture too large",
+            ));
+        }
+        Ok(ledgence_worker_api::ProgramPackageInspection {
+            manifest: serde_json::from_value(json!({
+                "schema_version": 1,
+                "program": descriptor.program,
+                "runtime": {"kind": "python", "python": "3.14", "protocol": 3},
+                "handler": "handler:main",
+                "platform": {"os": "linux", "arch": "x86_64"}
+            }))
+            .unwrap(),
+            entry_count: 1,
+        })
+    }
+}
+
 #[derive(Default)]
 struct Writer {
     calls: AtomicUsize,
@@ -67,6 +108,9 @@ async fn setup(
     let publication = PublicationService::new(writer)
         .with_transport_limits(maximum, 1, timeout)
         .unwrap();
+    setup_service(publication).await
+}
+async fn setup_service(publication: PublicationService) -> (Running, PublicationService) {
     let console = server::console::ConsoleServices::new(
         SelfHostedInstanceConfig {
             instance_id: "publication-test".into(),
@@ -118,7 +162,7 @@ fn put(running: &Running) -> reqwest::RequestBuilder {
 async fn binary_upload_and_identical_repeat_use_created_and_ok_and_preserve_headers() {
     let writer = Arc::new(Writer::default());
     let (running, _) = setup(writer.clone(), Duration::from_secs(5), 1024).await;
-    let client = HttpProgramPublisher::new(&running.url).unwrap();
+    let client = HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector)).unwrap();
     let capability = client.capabilities().await.unwrap();
     assert!(capability.enabled);
     assert!(!capability.registration_enabled);
@@ -147,7 +191,7 @@ async fn binary_upload_and_identical_repeat_use_created_and_ok_and_preserve_head
 #[tokio::test]
 async fn disabled_read_only_service_negotiates_without_reading_or_uploading() {
     let running = start(server::router(Arc::new(Mock::default()))).await;
-    let client = HttpProgramPublisher::new(&running.url).unwrap();
+    let client = HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector)).unwrap();
     assert!(!client.capabilities().await.unwrap().enabled);
     let (descriptor, bytes) = prepared();
     assert_eq!(
@@ -237,7 +281,7 @@ async fn expired_request_retains_capacity_and_drain_until_blocking_writer_finish
     );
     // The capability/control route remains usable while every upload is busy.
     assert!(
-        HttpProgramPublisher::new(&running.url)
+        HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
             .unwrap()
             .capabilities()
             .await
@@ -291,7 +335,7 @@ async fn incomplete_and_slow_uploads_release_admission_without_starting_writer()
         }
         assert_eq!(writer.calls.load(Ordering::SeqCst), 0);
         assert!(
-            HttpProgramPublisher::new(&running.url)
+            HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
                 .unwrap()
                 .capabilities()
                 .await
@@ -370,7 +414,7 @@ async fn publisher_rejects_mismatched_authority_and_malformed_or_oversized_repli
         vec![b' '; 16385],
     ] {
         let running = response_server(201, bytes, None).await;
-        let error = HttpProgramPublisher::new(&running.url)
+        let error = HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
             .unwrap()
             .publish(&descriptor, archive.clone())
             .await
@@ -379,7 +423,7 @@ async fn publisher_rejects_mismatched_authority_and_malformed_or_oversized_repli
     }
     let running = response_server(201, serde_json::to_vec(&correct).unwrap(), None).await;
     assert_eq!(
-        HttpProgramPublisher::new(&running.url)
+        HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
             .unwrap()
             .publish(&descriptor, archive)
             .await
@@ -405,7 +449,7 @@ async fn publisher_preserves_typed_rejections_but_not_untrusted_error_details() 
         ))
         .unwrap();
         let running = response_server(status, body, None).await;
-        let error = HttpProgramPublisher::new(&running.url)
+        let error = HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
             .unwrap()
             .publish(&descriptor, archive.clone())
             .await
@@ -420,7 +464,7 @@ async fn publisher_preserves_typed_rejections_but_not_untrusted_error_details() 
     .unwrap();
     let running = response_server(400, body, None).await;
     assert_eq!(
-        HttpProgramPublisher::new(&running.url)
+        HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
             .unwrap()
             .publish(&descriptor, archive)
             .await
@@ -433,7 +477,7 @@ async fn publisher_preserves_typed_rejections_but_not_untrusted_error_details() 
 async fn old_server_and_redirects_do_not_upload_or_follow_elsewhere() {
     let old = start(axum::Router::new()).await;
     assert_eq!(
-        HttpProgramPublisher::new(&old.url)
+        HttpProgramPublisher::new(&old.url, Arc::new(FixtureInspector))
             .unwrap()
             .capabilities()
             .await
@@ -449,7 +493,7 @@ async fn old_server_and_redirects_do_not_upload_or_follow_elsewhere() {
     ))
     .await;
     assert_eq!(
-        HttpProgramPublisher::new(&running.url)
+        HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
             .unwrap()
             .capabilities()
             .await
@@ -549,7 +593,7 @@ async fn publication_trace_and_observer_cover_capability_and_invalid_upload_rece
     let bridge = Arc::new(ExchangeTraceBridge::default());
     let observations = Arc::new(Mutex::new(Vec::new()));
     let capture = observations.clone();
-    let client = HttpProgramPublisher::new(&running.url)
+    let client = HttpProgramPublisher::new(&running.url, Arc::new(FixtureInspector))
         .unwrap()
         .with_trace_bridge(bridge)
         .with_observer(move |metadata| capture.lock().unwrap().push(metadata.clone()));

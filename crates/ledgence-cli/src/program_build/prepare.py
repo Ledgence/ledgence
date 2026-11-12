@@ -11,6 +11,9 @@ from pathlib import Path
 def main():
     control = json.loads(Path('/control/build.json').read_text())
     manifest = control['manifest']
+    # Private control data comes from the CLI's fixed package profile, never
+    # from an application option. Keep a slot for the generated manifest.
+    limits = control['limits']
     actual = {
         'os': sys.platform,
         'arch': {'amd64': 'x86_64', 'arm64': 'aarch64'}.get(platform.machine().lower(), platform.machine().lower()),
@@ -56,7 +59,7 @@ def main():
             if prior is None:
                 paths[key] = (spelling, is_dir)
                 count += 1
-                if count > 4095:
+                if count > limits['max_entries'] - 1:
                     raise RuntimeError('prepared package exceeds entry limit')
             destination = output / relative
             if is_dir:
@@ -65,7 +68,7 @@ def main():
                 continue
             length = source.stat().st_size
             size += length
-            if length > 64 * 1024 * 1024 or size > 256 * 1024 * 1024:
+            if length > limits['max_file_bytes'] or size > limits['max_expanded_bytes']:
                 raise RuntimeError('prepared package exceeds expansion limit')
             destination.parent.mkdir(parents=True, exist_ok=True)
             with source.open('rb') as incoming, destination.open('xb') as outgoing:

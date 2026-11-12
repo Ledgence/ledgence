@@ -81,3 +81,67 @@ fn failed_verification_releases_its_pin_for_eviction() {
     assert!(cache.publish_sync(other, next_archive).is_ok());
     assert!(cache.lookup_sync(&first).unwrap().is_none());
 }
+
+#[test]
+fn cancelled_expanded_lookup_keeps_its_verification_pin_until_completion() {
+    use ledgence_worker_api::{ArtifactCache, ProgramPackageProfile};
+    use std::io::{Cursor, Write};
+    use zip::{ZipWriter, write::SimpleFileOptions};
+
+    let root = tempfile::tempdir().unwrap();
+    let limits = ArtifactLimits::for_profile(ProgramPackageProfile::Entries8192V1);
+    let (mut descriptor, archive, _) = test_artifact("expanded-cancel");
+    let mut writer = ZipWriter::new_append(Cursor::new(archive)).unwrap();
+    for index in 2..8192 {
+        writer
+            .start_file(format!("dependency-{index}"), SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"x").unwrap();
+    }
+    let archive = writer.finish().unwrap().into_inner();
+    descriptor.size = archive.len() as u64;
+    descriptor.digest =
+        ledgence_worker_api::Digest(format!("sha256:{}", crate::archive::digest_hex(&archive)));
+    let cache = FileArtifactCache::new(root.path(), limits.clone()).unwrap();
+    drop(cache.publish_sync(descriptor.clone(), archive).unwrap());
+    let entry = cache.state().unwrap().pin(&descriptor).unwrap().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let pause = entry.verification.lock().unwrap();
+    runtime.block_on(async {
+        let lookup_cache = cache.clone();
+        let lookup_descriptor = descriptor.clone();
+        let task = tokio::spawn(async move { lookup_cache.lookup(&lookup_descriptor).await });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&entry) == 2 {
+            assert!(
+                Instant::now() < deadline,
+                "lookup never retained its verification pin"
+            );
+            tokio::task::yield_now().await;
+        }
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        // The caller is gone, but the running blocking verifier still owns its
+        // pin in addition to the index and this test. It cannot be evicted.
+        assert_eq!(Arc::strong_count(&entry), 3);
+    });
+    drop(pause);
+    runtime.block_on(async {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Arc::strong_count(&entry) > 2 {
+            assert!(
+                Instant::now() < deadline,
+                "cancelled lookup never finished verification"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
+    drop(entry);
+    drop(cache);
+    let reopened = FileArtifactCache::new(root.path(), limits).unwrap();
+    assert!(reopened.lookup_sync(&descriptor).unwrap().is_some());
+}

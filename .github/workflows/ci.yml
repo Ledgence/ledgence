@@ -103,6 +103,7 @@ jobs:
           python -m unittest discover -s tools -p 'test_acceptance_timing.py' -v
           python -m unittest discover -s tools -p 'test_resource_load.py' -v
           python -m unittest discover -s tools -p 'test_program_fixture.py' -v
+          python -m unittest discover -s tools -p 'test_framework_integration_gates.py' -v
           python -m unittest discover -s tools -p 'test_instance_access_gate.py' -v
           python -m unittest discover -s tools -p 'test_effect_evidence_fixtures.py' -v
           python -m unittest discover -s tools -p 'test_provider_operations_fixtures.py' -v
@@ -324,7 +325,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [http, sqs, api, artifacts, provider, provider-sqs, admission, admission-sqs, workflows-integrated, workflows-sqs, workflows-tracing]
+        suite: [http, sqs, api, artifacts, provider, provider-sqs, admission, admission-sqs, workflows-integrated, workflows-sqs, workflows-tracing, framework-pydantic_ai, framework-google_adk, framework-claude_agent_sdk]
     services:
       elasticmq:
         # An empty image disables this service in suites using integrated delivery.
@@ -355,7 +356,7 @@ jobs:
         id: python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.12'
+          python-version: ${{ startsWith(matrix.suite, 'framework-') && '3.14' || '3.12' }}
       - name: Download executables from this workflow run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -646,6 +647,62 @@ jobs:
             --psql "$RUNNER_TEMP/ledgence-psql" \
             --binaries "$RUNNER_TEMP/ledgence-acceptance-binaries/all-features" \
             --directory "$RUNNER_TEMP/ledgence-fulfillment-evidence"
+      - name: Qualify optional SDK and worker recovery
+        if: startsWith(matrix.suite, 'framework-')
+        env:
+          FRAMEWORK: ${{ matrix.suite }}
+          FRAMEWORK_HELPER_ROOT: ${{ github.workspace }}/sdk/python
+          FRAMEWORK_BINARIES: ${{ runner.temp }}/ledgence-acceptance-binaries/all-features
+        run: |
+          export FRAMEWORK="${FRAMEWORK#framework-}"
+          python tools/check-framework-integrations.py --framework "$FRAMEWORK" \
+            --python "$LEDGENCE_PYTHON" --helper-root "$FRAMEWORK_HELPER_ROOT" \
+            --evidence "$RUNNER_TEMP/framework-sdk"
+          python tools/check-framework-workers.py --framework "$FRAMEWORK" \
+            --sdk-evidence "$RUNNER_TEMP/framework-sdk" --binaries "$FRAMEWORK_BINARIES" \
+            --runner "$FRAMEWORK_HELPER_ROOT/ledgence/worker/bootstrap.py" \
+            --psql "$RUNNER_TEMP/ledgence-psql" --evidence "$RUNNER_TEMP/framework-workers"
+          python - <<'PYTHON'
+          import hashlib, json, os, re
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          framework = os.environ['FRAMEWORK']
+          helper = Path(os.environ['FRAMEWORK_HELPER_ROOT']).resolve()
+          binary = Path(os.environ['FRAMEWORK_BINARIES']) / 'ledgence'
+          sdk = json.loads((root / 'framework-sdk/summary.json').read_text())
+          worker = json.loads((root / 'framework-workers/summary.json').read_text())
+          assert sdk['passed'] is True and sdk['framework'] == framework
+          assert sdk['tests'] > 0 and sdk['skipped'] == sdk['errors'] == sdk['failures'] == 0
+          assert not sdk['forbidden_attempts']
+          assert sdk['source_sha'] == os.environ['GITHUB_SHA'] and sdk['source_dirty'] is False
+          assert Path(sdk['helper_origin']).resolve() == helper / 'ledgence/worker/integrations' / (framework + '.py')
+          expected = {str(p.relative_to(helper)): hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in sorted((helper / 'ledgence/worker').rglob('*.py'))}
+          assert expected and sdk['helper_sha256'] == sdk['helper_sha256_after'] == expected
+          inventory = sdk['installed_inventory_sha256']
+          assert type(inventory) is str and re.fullmatch(r'[0-9a-f]{64}', inventory)
+          assert sdk['installed_inventory_sha256_after'] == worker['installed_inventory_sha256'] == inventory
+          assert worker['passed'] is True and worker['cleanup_complete'] is True and worker['framework'] == framework
+          assert worker['scenarios'] and all(case['passed'] is True for case in worker['scenarios'])
+          assert worker['binary_sha256'] == hashlib.sha256(binary.read_bytes()).hexdigest()
+          assert worker['source_sha'] == os.environ['GITHUB_SHA'] and worker['source_dirty'] is False
+          assert worker['helper_sha256'] == worker['helper_sha256_after'] == expected
+          assert sdk['python'].startswith('3.14.') and worker['python'] == sdk['python']
+          PYTHON
+      - name: Retain optional framework summaries and logs
+        if: always() && startsWith(matrix.suite, 'framework-')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: framework-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/framework-sdk/*.json
+            ${{ runner.temp }}/framework-sdk/*.stdout
+            ${{ runner.temp }}/framework-sdk/*.stderr
+            ${{ runner.temp }}/framework-workers/summary.json
+            ${{ runner.temp }}/framework-workers/*.jsonl
+            ${{ runner.temp }}/framework-workers/*.log
+          if-no-files-found: error
+          retention-days: 7
       - name: Retain suite evidence including failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -53,7 +53,10 @@ feature unification cannot conceal coupling between them.
 The worker ports are `ProgramStore`, `ArtifactCache`, `ExecutionRuntime`, and `ExecutionSession`.
 Program publication uses a separate `ProgramArtifactPublisher` write
 port with portable descriptor/error/limit types, leaving worker store readers
-unchanged. The HTTP service bounds transfers and retains ownership until an
+unchanged. `ProgramPackageInspector` is a separate portable, borrowed-byte
+verification port; the HTTP client uses it before sending the unchanged ZIP.
+Fixed package profiles preserve legacy defaults while new composition selects
+expanded entry counts explicitly; no vendor SDK enters these core contracts. The HTTP service bounds transfers and retains ownership until an
 admitted write finishes; the filesystem adapter verifies and publishes immutable
 blobs before their descriptors. Docker preparation belongs to the CLI only; see
 [program publication](program-publication.md). Runtime execution receives `RuntimeInvocation`: the unchanged event plus an optional ephemeral execution carrier. `TraceBridge` connects existing tracing spans to portable W3C values; SDK and exporter types remain in the OTel adapter. Orchestration exposes `TaskService`, `TaskStore`, and `RecoveryStore`, plus `DispatchIntentStore`, `DispatchPublisher`, and `AckQueue` for durable publication and individually acknowledged sources. `AcquisitionSource` composes either integrated or broker delivery with the same driver. Third-party Rust adapters are compiled into a composition executable. This does not establish a stable dynamic-library ABI or a plugin marketplace.

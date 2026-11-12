@@ -1,0 +1,493 @@
+{
+  "schema": 1,
+  "scope": "qualification fixtures only; SDKs remain application-owned optional dependencies",
+  "reviewed_at": "2026-11-12",
+  "profiles": {
+    "pydantic_ai": {
+      "packages": [
+        {
+          "name": "annotated-types",
+          "version": "0.8.0",
+          "license": "MIT"
+        },
+        {
+          "name": "anyio",
+          "version": "4.16.0",
+          "license": "MIT"
+        },
+        {
+          "name": "genai-prices",
+          "version": "0.2.2",
+          "license": "MIT"
+        },
+        {
+          "name": "griffelib",
+          "version": "2.4.1",
+          "license": "ISC"
+        },
+        {
+          "name": "h11",
+          "version": "0.16.0",
+          "license": "MIT"
+        },
+        {
+          "name": "httpcore2",
+          "version": "2.16.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "httpx2",
+          "version": "2.16.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "idna",
+          "version": "3.20",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "logfire-api",
+          "version": "5.5.0",
+          "license": "MIT"
+        },
+        {
+          "name": "opentelemetry-api",
+          "version": "1.45.2",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "pydantic",
+          "version": "2.14.3",
+          "license": "MIT"
+        },
+        {
+          "name": "pydantic-ai-slim",
+          "version": "2.66.0",
+          "license": "MIT"
+        },
+        {
+          "name": "pydantic-graph",
+          "version": "2.66.0",
+          "license": "MIT"
+        },
+        {
+          "name": "pydantic_core",
+          "version": "2.50.4",
+          "license": "MIT"
+        },
+        {
+          "name": "truststore",
+          "version": "0.10.5",
+          "license": "MIT"
+        },
+        {
+          "name": "typing-inspection",
+          "version": "0.4.5",
+          "license": "MIT"
+        },
+        {
+          "name": "typing_extensions",
+          "version": "4.16.0",
+          "license": "PSF-2.0"
+        }
+      ]
+    },
+    "google_adk": {
+      "packages": [
+        {
+          "name": "aiosqlite",
+          "version": "0.22.1",
+          "license": [
+            "License :: OSI Approved :: MIT License"
+          ]
+        },
+        {
+          "name": "annotated-doc",
+          "version": "0.0.5",
+          "license": "MIT"
+        },
+        {
+          "name": "annotated-types",
+          "version": "0.8.0",
+          "license": "MIT"
+        },
+        {
+          "name": "anyio",
+          "version": "4.16.0",
+          "license": "MIT"
+        },
+        {
+          "name": "attrs",
+          "version": "26.1.0",
+          "license": "MIT"
+        },
+        {
+          "name": "Authlib",
+          "version": "1.9.5",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "certifi",
+          "version": "2026.10.23",
+          "license": "MPL-2.0"
+        },
+        {
+          "name": "cffi",
+          "version": "2.1.1",
+          "license": "MIT-0"
+        },
+        {
+          "name": "charset-normalizer",
+          "version": "3.5.2",
+          "license": "MIT"
+        },
+        {
+          "name": "click",
+          "version": "8.5.1",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "cryptography",
+          "version": "50.0.2",
+          "license": "Apache-2.0 OR BSD-3-Clause"
+        },
+        {
+          "name": "distro",
+          "version": "1.9.0",
+          "license": "Apache License, Version 2.0"
+        },
+        {
+          "name": "fastapi",
+          "version": "0.162.3",
+          "license": "MIT"
+        },
+        {
+          "name": "google-adk",
+          "version": "2.14.0",
+          "license": [
+            "License :: OSI Approved :: Apache Software License"
+          ]
+        },
+        {
+          "name": "google-auth",
+          "version": "2.62.2",
+          "license": "Apache 2.0"
+        },
+        {
+          "name": "google-genai",
+          "version": "2.34.0",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "graphviz",
+          "version": "0.21",
+          "license": "MIT"
+        },
+        {
+          "name": "h11",
+          "version": "0.16.0",
+          "license": "MIT"
+        },
+        {
+          "name": "httpcore",
+          "version": "1.0.9",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "httpx",
+          "version": "0.28.1",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "idna",
+          "version": "3.20",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "joserfc",
+          "version": "1.8.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "jsonschema",
+          "version": "4.26.0",
+          "license": "MIT"
+        },
+        {
+          "name": "jsonschema-specifications",
+          "version": "2025.9.1",
+          "license": "MIT"
+        },
+        {
+          "name": "opentelemetry-api",
+          "version": "1.45.2",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "opentelemetry-sdk",
+          "version": "1.45.2",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "opentelemetry-semantic-conventions",
+          "version": "0.66b2",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "packaging",
+          "version": "26.3",
+          "license": "Apache-2.0 OR BSD-2-Clause"
+        },
+        {
+          "name": "pyasn1",
+          "version": "0.6.5",
+          "license": "BSD-2-Clause"
+        },
+        {
+          "name": "pyasn1_modules",
+          "version": "0.4.2",
+          "license": "BSD"
+        },
+        {
+          "name": "pycparser",
+          "version": "3.12",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "pydantic",
+          "version": "2.14.3",
+          "license": "MIT"
+        },
+        {
+          "name": "pydantic_core",
+          "version": "2.50.4",
+          "license": "MIT"
+        },
+        {
+          "name": "python-dotenv",
+          "version": "1.2.4",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "python-multipart",
+          "version": "0.0.33",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "PyYAML",
+          "version": "6.0.3",
+          "license": "MIT"
+        },
+        {
+          "name": "referencing",
+          "version": "0.37.0",
+          "license": "MIT"
+        },
+        {
+          "name": "requests",
+          "version": "2.34.2",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "rpds-py",
+          "version": "2026.9.1",
+          "license": "MIT"
+        },
+        {
+          "name": "sniffio",
+          "version": "1.3.1",
+          "license": "MIT OR Apache-2.0"
+        },
+        {
+          "name": "starlette",
+          "version": "1.10.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "tenacity",
+          "version": "9.1.4",
+          "license": "Apache 2.0"
+        },
+        {
+          "name": "typing-inspection",
+          "version": "0.4.5",
+          "license": "MIT"
+        },
+        {
+          "name": "typing_extensions",
+          "version": "4.16.0",
+          "license": "PSF-2.0"
+        },
+        {
+          "name": "urllib3",
+          "version": "2.8.0",
+          "license": "MIT"
+        },
+        {
+          "name": "uvicorn",
+          "version": "0.54.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "watchdog",
+          "version": "6.0.0",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "websockets",
+          "version": "15.0.1",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    },
+    "claude_agent_sdk": {
+      "packages": [
+        {
+          "name": "annotated-types",
+          "version": "0.8.0",
+          "license": "MIT"
+        },
+        {
+          "name": "anyio",
+          "version": "4.16.0",
+          "license": "MIT"
+        },
+        {
+          "name": "attrs",
+          "version": "26.1.0",
+          "license": "MIT"
+        },
+        {
+          "name": "cffi",
+          "version": "2.1.1",
+          "license": "MIT-0"
+        },
+        {
+          "name": "click",
+          "version": "8.5.1",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "cryptography",
+          "version": "50.0.2",
+          "license": "Apache-2.0 OR BSD-3-Clause"
+        },
+        {
+          "name": "h11",
+          "version": "0.16.0",
+          "license": "MIT"
+        },
+        {
+          "name": "httpcore2",
+          "version": "2.16.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "httpx2",
+          "version": "2.16.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "idna",
+          "version": "3.20",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "jsonschema",
+          "version": "4.26.0",
+          "license": "MIT"
+        },
+        {
+          "name": "jsonschema-specifications",
+          "version": "2025.9.1",
+          "license": "MIT"
+        },
+        {
+          "name": "mcp",
+          "version": "2.3.0",
+          "license": "MIT"
+        },
+        {
+          "name": "mcp-types",
+          "version": "2.3.0",
+          "license": "MIT"
+        },
+        {
+          "name": "opentelemetry-api",
+          "version": "1.45.2",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "pycparser",
+          "version": "3.12",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "pydantic",
+          "version": "2.14.3",
+          "license": "MIT"
+        },
+        {
+          "name": "pydantic_core",
+          "version": "2.50.4",
+          "license": "MIT"
+        },
+        {
+          "name": "PyJWT",
+          "version": "2.15.1",
+          "license": "MIT"
+        },
+        {
+          "name": "python-multipart",
+          "version": "0.0.33",
+          "license": "Apache-2.0"
+        },
+        {
+          "name": "referencing",
+          "version": "0.37.0",
+          "license": "MIT"
+        },
+        {
+          "name": "rpds-py",
+          "version": "2026.9.1",
+          "license": "MIT"
+        },
+        {
+          "name": "sniffio",
+          "version": "1.3.1",
+          "license": "MIT OR Apache-2.0"
+        },
+        {
+          "name": "sse-starlette",
+          "version": "3.7.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "starlette",
+          "version": "1.10.0",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "truststore",
+          "version": "0.10.5",
+          "license": "MIT"
+        },
+        {
+          "name": "typing-inspection",
+          "version": "0.4.5",
+          "license": "MIT"
+        },
+        {
+          "name": "typing_extensions",
+          "version": "4.16.0",
+          "license": "PSF-2.0"
+        },
+        {
+          "name": "uvicorn",
+          "version": "0.54.0",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    }
+  }
+}

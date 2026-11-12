@@ -1623,6 +1623,7 @@ dependencies = [
  "getrandom 0.4.3",
  "http-body",
  "http-body-util",
+ "ledgence-adapter-artifact",
  "ledgence-orchestration-api",
  "ledgence-worker-api",
  "reqwest",

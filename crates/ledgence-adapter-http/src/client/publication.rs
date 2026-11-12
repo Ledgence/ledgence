@@ -1,18 +1,26 @@
 //! Binary artifact publication uses an independent transfer budget. It never
 //! changes the thirty-second deadline of task/catalog control operations.
 use super::{ExchangeMetadata, HttpCredentials, Observer};
-use ledgence_worker_api::{
-    Digest, ProgramDescriptor, PublicationCapabilities, PublicationError, PublicationErrorKind,
-    PublicationLimits, PublicationResult, PublishArtifactResult,
-};
+use crate::program_package_profile;
 use ledgence_worker_api::{NoopTraceBridge, TraceBridge};
+use ledgence_worker_api::{
+    ProgramDescriptor, ProgramPackageInspector, ProgramPackageProfile, PublicationCapabilities,
+    PublicationError, PublicationErrorKind, PublicationLimits, PublicationResult,
+    PublishArtifactResult,
+};
 use reqwest::{Client, Response, Url, header};
-use sha2::{Digest as _, Sha256};
 use std::{sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 use tracing::Instrument;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const RESPONSE_LIMIT: usize = 16 * 1024;
+const MAX_CONCURRENT_INSPECTIONS: usize = 2;
+
+struct NegotiatedPublication {
+    capabilities: PublicationCapabilities,
+    profile: ProgramPackageProfile,
+}
 #[derive(Clone)]
 pub struct HttpProgramPublisher {
     client: Client,
@@ -21,12 +29,24 @@ pub struct HttpProgramPublisher {
     timeout: Duration,
     observer: Option<Arc<Observer>>,
     trace_bridge: Arc<dyn TraceBridge>,
+    inspector: Arc<dyn ProgramPackageInspector>,
+    inspection_slots: Arc<Semaphore>,
 }
 impl HttpProgramPublisher {
-    pub fn new(base_url: &str) -> PublicationResult<Self> {
-        Self::with_timeout(base_url, DEFAULT_TIMEOUT)
+    /// Package inspection is mandatory and borrows the exact bytes later sent.
+    /// Clones share at most two active blocking inspections; caller-owned input
+    /// vectors waiting for admission are outside that active-work bound.
+    pub fn new(
+        base_url: &str,
+        inspector: Arc<dyn ProgramPackageInspector>,
+    ) -> PublicationResult<Self> {
+        Self::with_timeout(base_url, DEFAULT_TIMEOUT, inspector)
     }
-    pub fn with_timeout(base_url: &str, timeout: Duration) -> PublicationResult<Self> {
+    pub fn with_timeout(
+        base_url: &str,
+        timeout: Duration,
+        inspector: Arc<dyn ProgramPackageInspector>,
+    ) -> PublicationResult<Self> {
         if timeout.is_zero() || timeout > DEFAULT_TIMEOUT {
             return Err(invalid(
                 "upload timeout must be positive and at most 120 seconds",
@@ -64,6 +84,8 @@ impl HttpProgramPublisher {
             timeout,
             observer: None,
             trace_bridge: Arc::new(NoopTraceBridge),
+            inspector,
+            inspection_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_INSPECTIONS)),
         })
     }
     /// Credentials are scoped to the same destination as control operations.
@@ -128,6 +150,12 @@ impl HttpProgramPublisher {
         }
     }
     pub async fn capabilities(&self) -> PublicationResult<PublicationCapabilities> {
+        self.negotiate()
+            .await
+            .map(|negotiated| negotiated.capabilities)
+    }
+    async fn negotiate(&self) -> PublicationResult<NegotiatedPublication> {
+        let requested = ProgramPackageProfile::Entries8192V1;
         let started = std::time::Instant::now();
         let span = exchange_span("GET", "/v1/programs/publication-capabilities");
         let mut metadata = ExchangeMetadata {
@@ -137,7 +165,8 @@ impl HttpProgramPublisher {
         };
         let result = tokio::time::timeout(Duration::from_secs(30).min(self.timeout), async {
             let url = self.base.join("v1/programs/publication-capabilities").map_err(|_| invalid("invalid server URL"))?;
-            let response = self.request_trace(self.client.get(url), &span).send().await.map_err(|_| unavailable())?;
+            let request = self.client.get(url).header(program_package_profile::HEADER, program_package_profile::EXPANDED);
+            let response = self.request_trace(request, &span).send().await.map_err(|_| unavailable())?;
             observe_headers(&response, &mut metadata, &span);
             if matches!(response.status().as_u16(), 401 | 403) {
                 return Err(access_rejection(response).await?);
@@ -147,11 +176,12 @@ impl HttpProgramPublisher {
                     "server does not support program publication; use --store or upgrade the server"));
             }
             if response.status().as_u16() != 200 { return Err(unavailable()); }
+            let profile = program_package_profile::selected(requested, response.headers().get_all(program_package_profile::HEADER).iter().map(|value| value.as_bytes())).map_err(|_| unavailable())?;
             let bytes = read_response(response).await?;
             let capabilities: PublicationCapabilities = ledgence_orchestration_api::decode_unique_json(&bytes, RESPONSE_LIMIT)
                 .map_err(|_| unavailable())?;
-            validate_capabilities(&capabilities)?;
-            Ok(capabilities)
+            validate_capabilities(&capabilities, profile)?;
+            Ok(NegotiatedPublication { capabilities, profile })
         }.instrument(span.clone())).await.unwrap_or_else(|_| Err(unavailable()));
         self.observe(metadata, &span, started, &result);
         result
@@ -175,7 +205,8 @@ impl HttpProgramPublisher {
                 "prepared archive exceeds supported limit",
             ));
         }
-        let capabilities = self.capabilities().await?;
+        let negotiated = self.negotiate().await?;
+        let capabilities = negotiated.capabilities;
         if !capabilities.enabled {
             return Err(PublicationError::new(
                 PublicationErrorKind::Disabled,
@@ -188,12 +219,32 @@ impl HttpProgramPublisher {
                 "prepared archive exceeds server publication limit",
             ));
         }
+        let permit = self
+            .inspection_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| unavailable())?;
         let expected = descriptor.clone();
+        let inspector = self.inspector.clone();
+        let limits = capabilities.limits;
         let archive = tokio::task::spawn_blocking(move || {
-            let actual = Digest(format!("sha256:{:x}", Sha256::digest(&archive)));
-            if actual != expected.digest {
-                return Err(invalid("prepared archive hash does not match descriptor"));
+            // A cancelled caller cannot release capacity while inspection still
+            // owns the archive. Clones share the same active inspection budget.
+            let _permit = permit;
+            let inspection = inspector.inspect(&expected, &archive, &limits)?;
+            if inspection.entry_count == 0 || inspection.manifest.program != expected.program {
+                return Err(invalid(
+                    "package inspection does not match prepared descriptor",
+                ));
             }
+            if inspection.entry_count > limits.max_entries {
+                return Err(PublicationError::new(
+                    PublicationErrorKind::TooLarge,
+                    "prepared archive exceeds server publication entry limit",
+                ));
+            }
+            // Upload this exact owned vector, not reconstructed package bytes.
             Ok(archive)
         })
         .await
@@ -218,12 +269,15 @@ impl HttpProgramPublisher {
         let outcome = tokio::time::timeout(
             self.timeout,
             async {
-                let request = self
+                let mut request = self
                     .client
                     .put(url)
                     .header(header::CONTENT_TYPE, "application/zip")
                     .header("x-ledgence-archive-sha256", &descriptor.digest.0[7..])
                     .body(archive);
+                if let Some(value) = program_package_profile::value(negotiated.profile) {
+                    request = request.header(program_package_profile::HEADER, value);
+                }
                 let response = self
                     .request_trace(request, &span)
                     .send()
@@ -267,8 +321,11 @@ impl HttpProgramPublisher {
         outcome
     }
 }
-fn validate_capabilities(c: &PublicationCapabilities) -> PublicationResult<()> {
-    let maximum = PublicationLimits::default();
+fn validate_capabilities(
+    c: &PublicationCapabilities,
+    profile: ProgramPackageProfile,
+) -> PublicationResult<()> {
+    let maximum = profile.limits();
     if c.transfer_timeout_ms == 0
         || c.transfer_timeout_ms > 120_000
         || (c.enabled && (c.mode.as_deref() != Some("immutable") || c.max_concurrent_uploads == 0))

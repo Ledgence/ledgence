@@ -100,7 +100,8 @@ impl Session {
             return Err(invalid("unsupported publication receipt version"));
         }
         receipt.descriptor.validate().map_err(worker_error)?;
-        HttpProgramPublisher::new(&receipt.server).map_err(publication_error)?;
+        HttpProgramPublisher::new(&receipt.server, Arc::new(ZipProgramPackageInspector))
+            .map_err(publication_error)?;
         if let Some(command) = &receipt.registration {
             command.validate()?;
             if command.expected_descriptor.as_ref() != Some(&receipt.descriptor) {

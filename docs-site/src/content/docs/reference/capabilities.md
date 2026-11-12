@@ -230,3 +230,25 @@ clients can upload/download; CLI provides the same operations, Console separates
 metadata from explicit sensitive downloads, and MCP exposes metadata reads only.
 It requires a configured fixed instance and matching development components.
 Agent frameworks remain application-owned; none is preferred by this capability.
+
+
+## Agent framework adapters in development
+
+Matching development workers add optional PydanticAI, Google ADK and Claude Agent
+SDK integrations. They are not part of published 0.9.0 distributions. Application
+packages select and prepare their SDKs; the Rust platform and standard-library
+helper retain no mandatory framework/provider dependency.
+
+| Profile | Accepted replay | Other capabilities |
+| --- | --- | --- |
+| PydanticAI (`pydantic-ai-slim==2.66.0`) | Model responses, declared read tools, per-turn catalog discovery | Reported usage |
+| Google ADK (`google-adk==2.14.0`, `google-genai==2.34.0`) | Model responses, declared read tools, START catalog discovery | Reported usage |
+| Claude Agent SDK (`claude-agent-sdk==0.2.180`) | One whole external-agent run | Reported usage, native stop request |
+
+The helpers run in a protocol-3 workflow controller; tasks remain leaves. No
+profile supplies native session resume, partial-token checkpointing, automatic
+approval bridging, exactly-once external effects or verified external-stop
+completion. Source-only Claude transport checks qualify the Python SDK boundary,
+not live CLI/provider behavior. Models/tools remain operator-trusted; declared
+pure transforms and read tools have explicit bounds and supported native APIs.
+[Choose a framework profile and prepare its factory](/how-to/agent-frameworks).

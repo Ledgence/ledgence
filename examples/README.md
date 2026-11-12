@@ -52,6 +52,7 @@ use [Durable action approval](durable-approval/README.md) or
 
 | Example | Integration | Setup |
 | --- | --- | --- |
+| [Framework proposals with controlled writes](framework-integrations/README.md) | Three equal PydanticAI, Google ADK and Claude Agent SDK examples: a bounded proposal followed by controller-owned approval, admission and provider dispatch. | Current development beyond 0.9.0, exact optional SDKs and matching helper; deterministic offline fixtures, no provider or CLI calls. |
 | [Agent call recovery](agent-recovery/README.md) | Per-model and per-tool durable calls, explicit turn checkpoints, and recovery after a lost acknowledgment. Uses a scripted model and order service to isolate durability. | 0.6.0 source and CPython 3.11+ for the offline check; PostgreSQL and a worker for process recovery tests. No provider credentials. |
 | [Codex change review](codex-change-review/README.md) | Fix an empty-page pagination bug with Codex, fork tests/review/release-note branches, compare behavior locally, and wait for candidate-bound human approval. Includes an animated workflow replay, code snippets and a recording guide. | 0.6.0 source, PostgreSQL 18, CPython 3.13, and a host Codex CLI. Includes an offline acceptance gate and a real-provider mode. |
 | [Codex support agent](codex-support-agent/README.md) | Codex CLI with ChatGPT sign-in and access to the configured model. | 0.6.0 source, Rust, PostgreSQL 18, and CPython 3.13 on macOS arm64 or Linux x86_64. The application uses the Python standard library; Codex CLI is supplied separately. |

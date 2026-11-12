@@ -6,6 +6,11 @@ their original image and configuration; a CLI update does not enable uploads
 in those stacks. Existing filesystem publication and separate registration
 remain available.
 
+**Development:** builds and updated workers support an explicitly negotiated
+8,192-entry package profile. This extension is not available in the published
+0.9.0 binaries. Upgrade every eligible worker before dispatching larger packages;
+existing packages remain supported. Other package byte limits are unchanged.
+
 A program moves through three distinct operations:
 
 1. **Build** prepares selected application files and dependencies for an explicit
@@ -300,11 +305,26 @@ server's absent route is reported by the CLI as unsupported publication, with
 | Compressed ZIP | 64 MiB |
 | Expanded bytes | 256 MiB |
 | Single file | 64 MiB |
-| Entries, including directories | 4,096 |
+| Entries, including directories and manifest | 4,096 legacy; 8,192 with the development profile |
 | Manifest | 64 KiB |
 | Descriptor | 16 KiB |
 | Concurrent uploads per service instance | 2 |
 | Transfer plus verification/persistence budget | 120 seconds |
+
+The development client requests `X-Ledgence-Program-Package-Profile:
+entries-8192-v1` on capabilities discovery. A matching response header explicitly
+selects that profile; an absent response header selects legacy limits. The same
+selected header is sent on PUT. Capabilities JSON remains unchanged. Legacy
+clients receive the 4,096-entry contract, and an updated client can publish small
+packages to a 0.9.0 server. Larger packages fail local inspection before PUT when
+the peer selects legacy limits. Unknown, empty, repeated, comma-separated or
+unsolicited profile values fail validation rather than silently changing profiles.
+An embedding can omit the expanded writer and continue serving the legacy contract.
+
+Before upload, the client verifies the complete retained ZIP against every
+negotiated bound, including CRCs, paths, manifest, digest and actual member count.
+It uploads those same bytes once. Resume renegotiates and reinspects the saved
+archive; it never removes dependencies or rebuilds a package to fit a peer.
 
 Admission happens before reading the body. Transfers without a declared length
 are bounded as bytes arrive. A request's timeout or disconnection does not free
@@ -348,7 +368,13 @@ intact when reconciling a failure.
 `ArtifactCache` remain worker reading/preparation contracts. The filesystem
 adapter supplies `pack_directory`, `persist_archive` and
 `FileProgramArtifactPublisher`; a custom writer must honor the same immutable
-identity and completion-ownership rules. No Docker, filesystem or HTTP SDK types
+identity and completion-ownership rules. The portable `ProgramPackageInspector`
+borrows immutable archive bytes and returns a verified manifest and raw member
+count. HTTP clients require an injected inspector; the filesystem adapter supplies
+`ZipProgramPackageInspector` using the existing full verifier. `PublicationLimits`
+and `ArtifactLimits` defaults retain the legacy contract; new executable
+composition explicitly selects `ProgramPackageProfile::Entries8192V1`. Both HTTP
+writers share the same upload admission, timeout and drain budget. No Docker, filesystem or HTTP SDK types
 appear in the portable publication request/result/error contract.
 
 The package and API tests cover CRC/digest/identity errors, archive limits,

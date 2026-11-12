@@ -33,3 +33,6 @@ pub const ERROR_MAX_BYTES: usize = 64 * 1024;
 
 #[cfg(any(feature = "client", feature = "server"))]
 mod artifact_transfer;
+
+#[cfg(any(feature = "client", feature = "server"))]
+mod program_package_profile;

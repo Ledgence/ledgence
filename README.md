@@ -87,6 +87,13 @@ references between steps, and inspect metadata or explicitly download in Console
 This capability requires matching development components and configured storage;
 it is not part of the published 0.9.0 packages.
 
+The development source also includes optional [PydanticAI, Google ADK and Claude
+Agent SDK adapters](docs/agent-integrations.md). PydanticAI and ADK replay accepted
+model/read-tool operations; Claude replays an accepted whole external-agent run.
+Applications own their SDKs, models and credentials. These bounded profiles require
+matching development workers and are not in published 0.9.0 packages. Start with
+the [shared framework examples](examples/framework-integrations/README.md).
+
 ### Install and start Ledgence
 
 Install the latest stable release on a supported native platform:
@@ -161,6 +168,7 @@ contracts for [programs](docs/program-packages.md), [HTTP orchestration](docs/ht
 [workflows](docs/workflows.md), [events and timers](docs/workflow-events.md),
 [subworkflows](docs/subworkflows.md), [durable approvals](docs/workflow-approvals.md),
 [agent call recovery](docs/agent-recovery.md),
+[optional framework adapters](docs/agent-integrations.md),
 and [completion callbacks](docs/completion-notifications.md).
 
 The [capability map](https://docs.ledgence.com/reference/capabilities) provides

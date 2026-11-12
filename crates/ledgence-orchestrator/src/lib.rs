@@ -464,21 +464,29 @@ async fn prepare_and_serve(
             );
         }
         let root = location.clone();
-        let writer = tokio::task::spawn_blocking(move || {
-            ledgence_adapter_artifact::FileProgramArtifactPublisher::new(
-                root,
-                ArtifactLimits::default(),
-            )
+        let (legacy, expanded) = tokio::task::spawn_blocking(move || {
+            use ledgence_adapter_artifact::FileProgramArtifactPublisher;
+            use ledgence_worker_api::ProgramPackageProfile;
+            let legacy = FileProgramArtifactPublisher::new(&root, ArtifactLimits::default())?;
+            let expanded = FileProgramArtifactPublisher::new(
+                &root,
+                ArtifactLimits::for_profile(ProgramPackageProfile::Entries8192V1),
+            )?;
+            Ok::<_, ledgence_worker_api::PublicationError>((legacy, expanded))
         })
         .await
         .map_err(|_| "program publication setup failed".to_owned())?
         .map_err(|error| error.to_string())?;
-        Some(ledgence_adapter_http::server::publication::PublicationService::new(Arc::new(writer)))
+        Some(
+            ledgence_adapter_http::server::publication::PublicationService::new(Arc::new(legacy))
+                .with_extended_profile(Arc::new(expanded)),
+        )
     } else {
         None
     };
     let programs = tokio::task::spawn_blocking(move || -> Result<Arc<dyn ProgramStore>, String> {
-        let limits = ArtifactLimits::default();
+        let limits =
+            ArtifactLimits::for_profile(ledgence_worker_api::ProgramPackageProfile::Entries8192V1);
         if location.starts_with("http://") || location.starts_with("https://") {
             HttpProgramStore::new(&location, limits)
                 .map(|store| Arc::new(store) as Arc<dyn ProgramStore>)

@@ -31,7 +31,10 @@ SPEC.loader.exec_module(client)
 deps = client.deps
 run, install, interpreter = client.run, client.install, client.interpreter
 MODULES = {"__init__.py", "_logging.py", "_observations.py", "_protocol.py",
-           "artifacts.py", "bootstrap.py", "otel.py", "workflow.py", "providers.py", "admission.py", "provider_admission.py", "py.typed"}
+           "artifacts.py", "bootstrap.py", "otel.py", "workflow.py", "providers.py", "admission.py", "provider_admission.py", "py.typed",
+           "integrations/__init__.py", "integrations/_types.py", "integrations/_core.py",
+           "integrations/_schema.py", "integrations/_dependencies.py", "integrations/_catalog.py",
+           "integrations/pydantic_ai.py", "integrations/google_adk.py", "integrations/claude_agent_sdk.py"}
 SUITE = "tests/test_installed_package.py"
 
 
@@ -142,6 +145,10 @@ for portion in (["worker", "client"] if sys.argv[3] == "worker-first" else ["cli
         for name in ("_logging", "_observations", "_protocol", "bootstrap", "otel", "workflow"):
             loaded=importlib.import_module("ledgence.worker."+name)
             assert pathlib.Path(loaded.__file__).resolve().parent == pathlib.Path(module.__file__).resolve().parent
+        for name in ("pydantic_ai", "google_adk", "claude_agent_sdk"):
+            loaded=importlib.import_module("ledgence.worker.integrations."+name)
+            assert pathlib.Path(loaded.__file__).resolve() == pathlib.Path(module.__file__).resolve().parent / "integrations" / (name+".py")
+        assert not {"pydantic_ai", "google.adk", "claude_agent_sdk"}.intersection(sys.modules)
     else:
         from ledgence.client import AsyncClient
 try:import ledgence

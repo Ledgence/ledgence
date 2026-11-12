@@ -233,29 +233,46 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(context.continue_(continuation="next", state=None)["commands"]), 2)
 
     async def test_local_callable_context_blocks_nested_controls_and_thread_hops(self):
-        context = self.context()
         operations = [
-            lambda: context.local("nested", lambda: None),
-            lambda: context.task("child", program="echo", version="1", queue="queue", data=None),
-            lambda: context.workflow("nested", program="echo", version="1", queue="queue", data=None),
-            lambda: context.complete(None),
-            lambda: context.suspend(continuation="next", state=None),
-            lambda: context.continue_(continuation="next", state=None),
-            lambda: context.fail("failed", "failed"),
+            lambda context: context.local("nested", lambda: None),
+            lambda context: context.task("child", program="echo", version="1", queue="queue", data=None),
+            lambda context: context.workflow("nested", program="echo", version="1", queue="queue", data=None),
+            lambda context: context.complete(None),
+            lambda context: context.suspend(continuation="next", state=None),
+            lambda context: context.continue_(continuation="next", state=None),
+            lambda context: context.fail("failed", "failed"),
         ]
         for index, operation in enumerate(operations):
+            context = self.context()
             async def local():
-                return operation()
+                return operation(context)
             with self.assertRaisesRegex(WorkflowError, "use the controller"):
                 await context.local(str(index), local)
+            self.assertEqual(context._commands, [])
+            self.assertIsNone(context._fatal)
+        context = self.context()
         async def thread_hop():
-            return await asyncio.to_thread(operations[1])
+            return await asyncio.to_thread(operations[1], context)
         with self.assertRaisesRegex(WorkflowError, "use the controller"):
             await context.local("thread", thread_hop)
+        context = self.context()
         with self.assertRaisesRegex(WorkflowError, "controller event loop"):
-            await asyncio.to_thread(operations[1])
+            await asyncio.to_thread(operations[1], context)
         self.assertEqual(self.commits, [])
+
+    async def test_ordinary_local_can_catch_a_forbidden_control_without_staging_it(self):
+        context = self.context()
+        async def local():
+            try:
+                context.complete("forbidden")
+            except WorkflowError:
+                pass
+            return "handled"
+        self.assertEqual(await context.local("swallowed", local), "handled")
+        self.assertEqual([record["key"] for record in self.commits], ["swallowed"])
         self.assertEqual(context._commands, [])
+        self.assertIsNone(context._fatal)
+        self.assertEqual(context.complete("recovered")["output"], "recovered")
 
     async def test_stale_decision_cannot_drop_later_staged_children(self):
         for method in ("suspend", "continue_"):

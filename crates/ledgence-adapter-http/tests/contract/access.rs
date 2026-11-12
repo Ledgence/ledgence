@@ -389,10 +389,13 @@ async fn denied_upload_returns_before_waiting_for_body_and_allowed_publication_s
         digest: Digest(format!("sha256:{:x}", Sha256::digest(&bytes))),
         size: bytes.len() as u64,
     };
-    let client = ledgence_adapter_http::HttpProgramPublisher::new(&f.running.url)
-        .unwrap()
-        .with_bearer_token("publisher")
-        .unwrap();
+    let client = ledgence_adapter_http::HttpProgramPublisher::new(
+        &f.running.url,
+        Arc::new(super::publication::FixtureInspector),
+    )
+    .unwrap()
+    .with_bearer_token("publisher")
+    .unwrap();
     assert!(client.capabilities().await.unwrap().enabled);
     assert_eq!(
         client.publish(&descriptor, bytes).await.unwrap().descriptor,

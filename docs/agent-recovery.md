@@ -1,5 +1,10 @@
 # Durable model and tool calls
 
+For PydanticAI, Google ADK or Claude Agent SDK, the development
+[optional framework adapters](agent-integrations.md) reuse this journal with
+explicit per-framework recovery boundaries. Their SDKs remain application-owned;
+these adapters are not present in the published 0.9.0 helper.
+
 A workflow can record individual model and tool responses before using them to
 choose its next action. On an activation retry, Ledgence returns the committed
 response for the same operation key and binding. The model can make a different

@@ -21,6 +21,7 @@ import math
 import re
 import unicodedata
 import uuid
+from weakref import WeakKeyDictionary
 from typing import Any
 
 SCHEMA = "ledgence.workflow.activation.v1"
@@ -431,6 +432,26 @@ class Approval:
 
 _workflow: ContextVar[WorkflowContext | None] = ContextVar("ledgence_workflow", default=None)
 _local_owner: ContextVar[WorkflowContext | None] = ContextVar("ledgence_local_owner", default=None)
+_controller_scope: ContextVar[object | None] = ContextVar("ledgence_controller_scope", default=None)
+_local_tasks = WeakKeyDictionary()
+
+
+def _current_local_owner():
+    owner = _local_owner.get()
+    if owner is not None:
+        return owner
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        task = None
+    return _local_tasks.get(task) if task is not None else None
+
+
+def _reject_local_control(owner):
+    error = WorkflowError("durable local callables cannot stage workflow operations; use the controller")
+    if owner._integration_owners and owner._fatal is None:
+        owner._fatal = error
+    raise error
 
 
 def _text(value, name, limit=128):
@@ -825,6 +846,16 @@ class ForkRef:
     _context: Any
 
 
+async def _await_owned(task):
+    # asyncio.wait does not propagate observer cancellation to supplied tasks.
+    # Retrieve the actual outcome only when delivering it. Unlike a cancelled
+    # shield wrapper (Python 3.14), this does not separately log an exception
+    # that the invocation's retained owner will inspect during drainage.
+    if not task.done():
+        await asyncio.wait((task,))
+    return task.result()
+
+
 class _LocalResult:
     def __init__(self, task, observed_failures):
         self._task = task
@@ -834,7 +865,7 @@ class _LocalResult:
         # A cancelled observer cannot abandon a running local operation. The
         # activation retains ownership and drains it before process reuse.
         try:
-            return _freeze(await asyncio.shield(self._task), MAX_RECORD_BYTES, authoritative=True)
+            return _freeze(await _await_owned(self._task), MAX_RECORD_BYTES, authoritative=True)
         except BaseException as exc:
             if (self._task.done() and not self._task.cancelled()
                     and self._task.exception() is exc):
@@ -860,6 +891,9 @@ class WorkflowContext:
 
     def __init__(self, payload, rpc, *, effect_evidence_v2=False, native_effect_resolution=False,
                  provider_operation=False, resource_admission=False, provider_admission=False):
+        owner = _current_local_owner()
+        if owner is not None:
+            _reject_local_control(owner)
         if type(effect_evidence_v2) is not bool:
             raise WorkflowError("effect evidence capability must be a boolean")
         if type(native_effect_resolution) is not bool:
@@ -1003,6 +1037,18 @@ class WorkflowContext:
         self._commands = []
         self._closed = False
         self._fatal = None
+        # Optional framework adapters form ownership trees: their journal tasks
+        # are children, not competing roots of invocation cleanup.
+        self._integration_owners = {}
+        self._integration_children = set()
+        self._integration_budget = None
+        self._finish_task = None
+        self._finish_cancelled = False
+        scope = _controller_scope.get()
+        if scope is None:
+            scope = object()
+            _controller_scope.set(scope)
+        self._controller_scope = scope
 
     @property
     def entrypoint(self):
@@ -1205,15 +1251,21 @@ class WorkflowContext:
         _text(wait["key"], "wait key")
 
     def _active(self):
-        if _local_owner.get() is not None:
-            raise WorkflowError("durable local callables cannot stage workflow operations; use the controller")
+        owner = _current_local_owner()
+        if owner is not None:
+            _reject_local_control(owner)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError as exc:
             raise WorkflowError("workflow operations require the controller event loop") from exc
         if loop is not self._loop:
             raise WorkflowError("workflow operations require the controller event loop")
-        if self._closed:
+        if _controller_scope.get() is not self._controller_scope:
+            error = WorkflowError("workflow operations require the invocation controller context")
+            if self._integration_owners and self._fatal is None:
+                self._fatal = error
+            raise error
+        if self._closed or self._finish_cancelled:
             raise WorkflowError("workflow activation is closed")
         if self._fatal is not None:
             raise WorkflowError("workflow runtime acknowledgement failed") from self._fatal
@@ -1529,10 +1581,15 @@ class WorkflowContext:
         # Sync functions retain normal synchronous semantics. Async functions
         # can overlap I/O without allocating additional subprocesses or threads.
         token = _local_owner.set(self)
+        scope_token = _controller_scope.set(None)
+        task = asyncio.current_task()
+        _local_tasks[task] = self
         try:
             output = fn(**_freeze(arguments, MAX_RECORD_BYTES))
             if inspect.isawaitable(output):
                 output = await output
+            if self._fatal is not None:
+                raise WorkflowError("workflow runtime failed during the local callable") from self._fatal
             replayed = effect is not None and effect.replay_record is not None
             if replayed:
                 record = effect.replay_record
@@ -1546,8 +1603,12 @@ class WorkflowContext:
             # A callable returning is distinct from its result being accepted.
             finish_local(observation, "replayed" if replayed else "returned")
         finally:
+            _local_tasks.pop(task, None)
+            _controller_scope.reset(scope_token)
             _local_owner.reset(token)
         async with self._commit_lock:
+            if self._fatal is not None:
+                raise WorkflowError("workflow runtime failed before local commit") from self._fatal
             _encode([*self._records.values(), record], MAX_RECORDS_BYTES, 96, authoritative=replayed)
             try:
                 if replayed:
@@ -2034,27 +2095,67 @@ class WorkflowContext:
             tasks.append(self._provider_pending)
         if self._admission_pending is not None:
             tasks.append(self._admission_pending)
-        return tasks
+        return [task for task in tasks if task not in self._integration_children] + [
+            owner.task for owner in self._integration_owners.values() if owner.task is not None]
+
+    def _stop_owned(self):
+        for owner in self._integration_owners.values():
+            owner.request_stop()
 
     async def _drain(self):
-        # Retain controller-owned operations started by asynchronous controller
-        # work while an earlier batch is draining. Local callables cannot stage work.
+        # Shield roots: cancelling a controller cannot close an SDK while a
+        # shielded operation still uses it. Its owner retains teardown.
         while True:
             tasks = self._owned_tasks()
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            group = asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                results = await asyncio.shield(group)
+            except asyncio.CancelledError:
+                self._stop_owned()
+                raise
             for task, result in zip(tasks, results):
                 if isinstance(result, BaseException) and task not in self._observed_failures:
                     if isinstance(result, Exception):
                         raise result
                     raise WorkflowError("an owned workflow operation was cancelled") from result
-            if len(tasks) == len(self._owned_tasks()):
+            if set(tasks) == set(self._owned_tasks()):
                 return
 
-    async def _finish(self, cancel=False):
-        self._closed = True
-        tasks = self._owned_tasks()
-        if cancel:
-            for task in tasks:
+    def _request_finish_cancel(self):
+        if self._finish_cancelled:
+            return
+        self._finish_cancelled = True
+        self._stop_owned()
+        owners = {owner.task for owner in self._integration_owners.values()}
+        for task in self._owned_tasks():
+            if task not in owners:
                 task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _finish_owned(self):
+        try:
+            while True:
+                tasks = self._owned_tasks()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                if set(tasks) == set(self._owned_tasks()):
+                    return
+        finally:
+            self._closed = True
+
+    async def _finish(self, cancel=False):
+        # One retained barrier for all callers. Normal close leaves admitted
+        # owners able to journal their remaining work. Stop never cancels an
+        # owner's acquisition, retained executors or same-task resource close.
+        if cancel:
+            self._request_finish_cancel()
+        if self._finish_task is None:
+            self._finish_task = asyncio.create_task(self._finish_owned())
+        cancelled = False
+        while True:
+            try:
+                await _await_owned(self._finish_task)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+                self._request_finish_cancel()
+        if cancelled:
+            raise asyncio.CancelledError
