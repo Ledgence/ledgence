@@ -9,9 +9,11 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
-## Prepare an upgrade from 0.9.0 to 0.10.0
+<span id="prepare-an-upgrade-from-090-to-0100"></span>
 
-The 0.10.0 candidate adds `20261110000000_execution_artifacts.sql` for store
+## Prepare an upgrade from 0.9.0 to 0.10.1
+
+The 0.10.1 candidate adds `20261110000000_execution_artifacts.sql` for store
 bindings, immutable manifests, upload generations and durable cleanup evidence.
 The verified public release remains 0.9.0. Follow the
 [0.10 upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md) with

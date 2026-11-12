@@ -6,13 +6,13 @@ The Rust worker supplies `ledgence.worker` with its Python runner. It supports
 ordinary program handlers, invocation context and logs, and protocol 3 workflows
 with registered entrypoints, durable local results, tasks, subworkflows, forks,
 events, timers, and action approvals. The separately installed
-[`ledgence.client`](https://github.com/Ledgence/ledgence/blob/v0.10.0/sdk/python-client/README.md) submits and observes work.
+[`ledgence.client`](https://github.com/Ledgence/ledgence/blob/v0.10.1/sdk/python-client/README.md) submits and observes work.
 
 Use a runtime helper matching your worker. The helper is standard-library-only;
 application integrations and their prepared dependencies belong in the program
 package. No agent framework or model provider is required.
 
-This README documents `ledgence-worker` 0.10.0. Use matching Ledgence server and
+This README documents `ledgence-worker` 0.10.1. Use matching Ledgence server and
 worker support. See [GitHub releases](https://github.com/Ledgence/ledgence/releases)
 for verified published versions and distribution channels.
 
@@ -79,8 +79,8 @@ which the bootstrap loads before a copy vendored in a program artifact.
 Keep `ledgence-worker` out of application runtime dependencies: the worker
 supplies it. Prepare all actual application dependencies separately for the
 worker's platform and exact Python major/minor before publishing a program.
-See [Develop Python programs](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs-site/src/content/docs/how-to/develop-python-programs.md)
-for a complete authoring example and [program packages](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/program-packages.md)
+See [Develop Python programs](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs-site/src/content/docs/how-to/develop-python-programs.md)
+for a complete authoring example and [program packages](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/program-packages.md)
 for the runtime artifact contract.
 
 <a id="execution-files-in-development"></a>
@@ -142,9 +142,9 @@ installing this package alone cannot execute them in an ordinary local test.
 For an external script, use `AsyncClient.artifacts` from `ledgence.client` instead.
 That client names an existing task/workflow target and uses operator/service
 capabilities; it does not impersonate a worker lease. Its typed references offer
-`to_dict()` for JSON. See the [file-sharing contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/execution-artifacts.md),
-[client README](https://github.com/Ledgence/ledgence/blob/v0.10.0/sdk/python-client/README.md), and complete
-[producer/workflow/consumer example](https://github.com/Ledgence/ledgence/blob/v0.10.0/examples/execution-artifacts/README.md).
+`to_dict()` for JSON. See the [file-sharing contract](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/execution-artifacts.md),
+[client README](https://github.com/Ledgence/ledgence/blob/v0.10.1/sdk/python-client/README.md), and complete
+[producer/workflow/consumer example](https://github.com/Ledgence/ledgence/blob/v0.10.1/examples/execution-artifacts/README.md).
 
 ## Durable model and tool calls
 
@@ -276,9 +276,9 @@ outside the trusted-factory profile and cannot be exhaustively inspected through
 its public API. Source-only Claude transport checks do not establish live
 CLI/provider or external-process termination behavior.
 
-See the [full adapter contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/agent-integrations.md),
+See the [full adapter contract](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/agent-integrations.md),
 [framework guide](https://docs.ledgence.com/how-to/agent-frameworks) and
-[equal-scope framework examples](https://github.com/Ledgence/ledgence/blob/v0.10.0/examples/framework-integrations/README.md)
+[equal-scope framework examples](https://github.com/Ledgence/ledgence/blob/v0.10.1/examples/framework-integrations/README.md)
 for factory construction, schemas, limits, recovery and explicit optional SDK setup.
 
 ## Durable approvals
@@ -307,7 +307,7 @@ arguments and verifies the callable identity/version. Copies returned by
 change its private execution binding. Rejected and expired requests resume with
 their corresponding status; workflow cancellation closes the request without
 resuming its controller. See the runnable
-[durable approval example](https://github.com/Ledgence/ledgence/blob/v0.10.0/examples/durable-approval/README.md).
+[durable approval example](https://github.com/Ledgence/ledgence/blob/v0.10.1/examples/durable-approval/README.md).
 
 Execution also checks that signature binding introduces no new effective defaults.
 When constructing an `ApprovalAction` directly, include all effective arguments
@@ -336,7 +336,7 @@ receipt and closes that retention hold together. Return a validated JSON receipt
 raise `EffectOutcomeUnknown` (from `ledgence.worker.workflow`) if the outcome
 is inconclusive. Disable write retries inside your own adapter and never fall back
 to `approved_local` for the same external write. See
-[the refund contract and example](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/workflow-approvals.md#protect-an-approved-external-write)
+[the refund contract and example](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/workflow-approvals.md#protect-an-approved-external-write)
 for migration, replay, and failure handling. The published 0.7.0 helper predates
 protected-effect operations.
 
@@ -351,7 +351,7 @@ Historical and credentialless v1 operation keeps its existing wire contract.
 The same managed-process lifecycle applies. Checkpointing drains owned calls and
 cancellation may terminate them before a provider reply can be recorded. A separate
 authenticated evidence operation is available to surviving Rust/HTTP callers with
-a retained claim. See [effect evidence](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/effect-evidence.md) for its
+a retained claim. See [effect evidence](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/effect-evidence.md) for its
 provenance, migration, inspection and retention contract.
 
 <a id="native-operator-rendezvous-development"></a>
@@ -432,7 +432,7 @@ servers/runtimes reject native waiting explicitly; there is no generic-event
 fallback. Older helpers retain their existing behavior. An accepted assessment
 releases the unresolved execution retention hold without confirming the journal;
 all evidence and assessment receipts remain retained after ordinary collection.
-See [operator resolution and public clients](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/effect-evidence.md#record-an-operator-assessment).
+See [operator resolution and public clients](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/effect-evidence.md#record-an-operator-assessment).
 
 <a id="provider-operations-development"></a>
 
@@ -510,9 +510,9 @@ The runtime negotiates `provider_operation.v1`, with native effect resolution an
 evidence v2 prerequisites. Ordinary tasks and historical A/B helpers preserve
 their existing protocol.
 
-See [provider operations](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/provider-operations.md) for policy,
+See [provider operations](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/provider-operations.md) for policy,
 configuration, limits, restore quarantine and evidence retention. The
-[asynchronous export example](https://github.com/Ledgence/ledgence/blob/v0.10.0/examples/provider-recovery/README.md) includes
+[asynchronous export example](https://github.com/Ledgence/ledgence/blob/v0.10.1/examples/provider-recovery/README.md) includes
 a real local provider and an independent mutation/effect census.
 
 ## Runtime helper
@@ -729,7 +729,7 @@ The parent can continue local work before returning
 outcome. Branch execution overlaps only when matching worker capacity is free.
 Fork keys are workflow-wide, branch keys share the child namespace, and exact
 retries reuse the original registration. See
-[entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/workflow-entrypoints.md) for a complete example,
+[entrypoints and forks](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/workflow-entrypoints.md) for a complete example,
 reconciliation, and bounds.
 
 ## Explicit checkpoint workflows (protocol 3)
@@ -800,7 +800,7 @@ Parent cancellation or failure drains owned descendants before becoming terminal
 Completion with unfinished children is rejected. A decision can stage at most 64
 combined child commands and wait on at most 64 children. Each parent may have at
 most 64 live subworkflows; nested depth is capped at 16 (root depth is zero).
-See [`docs/subworkflows.md`](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/subworkflows.md) for the lifecycle,
+See [`docs/subworkflows.md`](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/subworkflows.md) for the lifecycle,
 lineage, limits, and upgrade requirements.
 
 External events and durable timers also use explicit checkpoint decisions:
@@ -874,7 +874,7 @@ Unexpected controller exceptions are retryable activation runtime failures.
 `ctx.fail(...)` explicitly requests workflow failure. Ordinary task output is
 never interpreted as a workflow decision, even when it contains a `kind` field.
 
-See [`docs/workflows.md`](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/workflows.md) for the workflow contract,
+See [`docs/workflows.md`](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/workflows.md) for the workflow contract,
 checkpoint limits, cancellation, and recovery semantics.
 
 <span id="durable-resource-admission-development-source"></span>
@@ -1054,10 +1054,10 @@ budgets. An accepted `unknown` report cannot later be changed to `completed`
 under the same report identity. This resource controls registered initial dispatch authorizations, not
 all physical requests or hidden retries inside an adapter.
 
-See the runnable [provider admission example](https://github.com/Ledgence/ledgence/blob/v0.10.0/examples/provider-admission/README.md)
+See the runnable [provider admission example](https://github.com/Ledgence/ledgence/blob/v0.10.1/examples/provider-admission/README.md)
 for an approval, resource wait, dispatch and business-result workflow using a
 local synthetic provider.
 
 ### Run allowance and token observations
 
-A governed callback can return `AdmittedResult(output, usage=RunBudgetUsage.reported(input_tokens=7, output_tokens=3))`. Both types are in `ledgence.worker.admission`. Use `RunBudgetUsage.estimated(...)` for an estimate. An ordinary return value keeps usage unknown. `AdmittedResult` preserves the application output; usage is recorded separately from its one call authorization. A provider adapter can pass `usage=` on its provider report. See [run budgets](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/run-budgets.md).
+A governed callback can return `AdmittedResult(output, usage=RunBudgetUsage.reported(input_tokens=7, output_tokens=3))`. Both types are in `ledgence.worker.admission`. Use `RunBudgetUsage.estimated(...)` for an estimate. An ordinary return value keeps usage unknown. `AdmittedResult` preserves the application output; usage is recorded separately from its one call authorization. A provider adapter can pass `usage=` on its provider report. See [run budgets](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/run-budgets.md).
