@@ -9,6 +9,28 @@ success only after commit.
 
 The [delivery driver](worker-delivery.md) executes assignments through the application service and this adapter, either in a Rust composition or through the [HTTP orchestrator and connected worker](http-orchestration.md). Separate gates cover in-process PostgreSQL/Python delivery and separate-process network delivery. [Bounded acquisition waits](acquisition-waits.md) and [optional OpenTelemetry traces](observability.md) are available; explicit [bounded retention maintenance](retention.md) is available. These tests do not establish exactly-once external business effects or database failover guarantees.
 
+## Prepare an upgrade from 0.9.0 to 0.10.0
+
+The 0.10.0 candidate adds `20261110000000_execution_artifacts.sql` for store
+bindings, immutable manifests, upload generations and durable cleanup evidence.
+The verified public release remains 0.9.0. Follow the
+[0.10 upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md) with
+matching candidate binaries, Console contract 16 assets, worker helpers and SDKs.
+
+Stop all writers and retention maintenance, preserve the instance, authority and
+scope, and back up the database, immutable programs, configuration and any
+configured execution store. Rehearse on a fresh isolated restore, run the explicit
+migrator twice to reconcile its ledger, and inspect preserved executions and
+receipts before resuming. The old binary rejects the new schema; rollback uses a
+fresh restored database with matching old components and external-effect
+reconciliation, not down migrations.
+
+Filesystem artifact recovery requires the full stopped store, including hidden
+`.ledgence-artifact-store`, with the same configured `store_id`. Restore it before
+any process opens the target; a newly created marker conflicts with the restored
+catalog. The path may change while that identity remains fixed. Spools and worker
+caches are transient. [Artifact recovery constraints](execution-artifacts.md#retention-and-backup).
+
 <span id="upgrade-from-070-to-development-source"></span>
 
 ## Upgrade from 0.7.0 to 0.8.0

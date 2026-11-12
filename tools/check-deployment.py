@@ -174,7 +174,7 @@ print(json.dumps({'verified_events': len(expected)}))
             before = {item["workflow_id"]: api("/v1/workflows/result?" + urllib.parse.urlencode({
                 "tenant_id": "acme", "namespace": "demo", "workflow_id": item["workflow_id"]}))
                       for item in preserved}
-            run(compose + ["down", "--timeout", "65"])
+            run(compose + ["down"], timeout=420)
             # Existing volumes survive; migration reruns and schema verification
             # precedes service readiness. Process reuse assertions run fresh again.
             run(compose + ["up", "-d", "--wait", "--wait-timeout", "120"])
@@ -225,7 +225,7 @@ print(json.dumps({'verified_events': len(expected)}))
             try:
                 run(compose + ["logs", "--no-color"], timeout=30)
             finally:
-                run(compose + ["down", "--volumes", "--remove-orphans", "--timeout", "65"])
+                run(compose + ["down", "--volumes", "--remove-orphans"], timeout=420)
     report = {"passed": True, "executed_at_unix": int(time.time()),
               "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),

@@ -132,10 +132,12 @@ class OwnedDatabaseUrlTests(unittest.TestCase):
         exercise.assert_called_once()
         deployment.return_value.close.assert_called_once()
         deployment.return_value.remove_credentials_and_scan.assert_called_once()
-        self.assertEqual(len(set(drops)), 2)
+        self.assertEqual(len(set(drops)), 3 if predecessor == "0.9.0" else 2)
+        if predecessor == "0.9.0":
+            self.assertIn("artifact_restore_url", exercise.call_args.kwargs)
         return status, report
 
-    def test_upgrade_cleanup_attempts_both_databases_and_cannot_report_a_pass(self):
+    def test_upgrade_cleanup_attempts_all_owned_databases_and_cannot_report_a_pass(self):
         for predecessor in ("0.8.0", "0.9.0"):
             with self.subTest(predecessor=predecessor):
                 status, result = self.run_upgrade_gate(predecessor, drop_failure=True)

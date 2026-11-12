@@ -132,9 +132,16 @@ instances add their own budgets.
 Files follow the root execution's retention. Removing a completed child does not
 remove its files while its root remains retained. Physical cleanup runs through
 explicit retention maintenance and preserves uncertain write obligations. Back
-up the durable file store together with PostgreSQL; temporary spools are not a
-backup. Read the [operational contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#retention-and-backup)
-before enabling this in an existing installation.
+up the complete stopped durable file store together with PostgreSQL and
+configuration. Include hidden `.ledgence-artifact-store` and preserve its bytes
+and configured `store_id`. Restore the whole filesystem copy into an empty target
+before the server first opens it; an early open generates a marker rejected by
+the restored catalog. Its directory path may change while that identity remains
+fixed. Temporary spools and worker caches are not backups. S3 identity binds
+endpoint, region, bucket and prefix, so a cross-bucket copy is not a transparent
+restore. Read the [operational contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#retention-and-backup)
+and [0.10 upgrade procedure](/how-to/upgrade-to-0-10) before enabling this in an
+existing installation.
 
 A transfer deadline releases local download ownership and starts temporary-file
 cleanup. It does not force a network connection closed. A client that stops

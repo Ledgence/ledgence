@@ -278,9 +278,7 @@ fn execute(options: Options) -> Result<()> {
         }
         Action::Down => {
             compose_status(
-                docker
-                    .compose(&directory, &state)
-                    .args(["down", "--timeout", "65"]),
+                docker.compose(&directory, &state).arg("down"),
                 "stop",
                 &directory,
             )?;

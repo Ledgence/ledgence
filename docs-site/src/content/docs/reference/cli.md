@@ -181,7 +181,7 @@ Docker `--context` on first startup; saved options do not change implicitly.
 | `local up` | Verify and copy the kit on first use, start the saved Compose project, and wait for readiness. Print API/Console URLs, scope, image, context and worker platform. |
 | `local status` | Display all service states and saved settings without starting containers. |
 | `local logs` | Show 100 recent lines per service by default. Accept `--tail 1..10000`, `--follow`, and `--service postgres\|migrate\|orchestrator\|worker`. |
-| `local down` | Stop the project with a 65-second grace period, preserving data volumes and configuration. |
+| `local down` | In published 0.9.0, stop the project with a 65-second grace period, preserving data volumes and configuration. The 0.10 candidate honors each service’s saved Compose grace period. |
 
 The base stack runs PostgreSQL, a migrator, an orchestrator serving Console,
 and one worker in tenant `acme`, namespace `demo`, queue `demo`. Programs and

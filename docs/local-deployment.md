@@ -162,9 +162,10 @@ container's service hostname is not a loopback endpoint.
 
 PostgreSQL remains the durable task authority. This local ElasticMQ fixture
 keeps queue messages in memory; restart recovery relies on Ledgence's retained
-dispatch obligations. The default deployment persists PostgreSQL, program
-packages, worker cache and receiver state. Local compatibility tests do not
-establish real AWS SQS acceptance or a throughput promise.
+dispatch obligations. The current source deployment persists PostgreSQL, program
+packages, execution artifacts, worker cache, artifact spool and receiver state.
+The cache and spool are transient; the other stores are recovery state. Local
+compatibility tests do not establish real AWS SQS acceptance or a throughput promise.
 
 ## Startup, shutdown and recovery
 
@@ -176,19 +177,27 @@ not change task outcomes; durable delivery retries independently.
 ```sh
 docker compose -f deploy/local/compose.yaml ps
 docker compose -f deploy/local/compose.yaml logs --tail 100 orchestrator worker
-docker compose -f deploy/local/compose.yaml down --timeout 65
+docker compose -f deploy/local/compose.yaml down
 docker compose -f deploy/local/compose.yaml up -d --wait --wait-timeout 120
 ```
 
-`down` preserves the named volumes. Both process supervisors receive SIGTERM and
-have 65 seconds before Docker forces termination. Abrupt loss still uses durable
-leases and recovery; application effects remain at-least-once and must be
-idempotent. Cache contents may be rebuilt from the immutable store, but published
-packages and database state must be backed up together according to application
-requirements. Copying a live PostgreSQL volume is not a consistent backup; use
-PostgreSQL backup tools and validate restoration before upgrades.
+`down` preserves the named volumes and uses each service's configured shutdown
+grace: 65 seconds for the worker and 155 seconds for the orchestrator in the
+current source kit. Do not override these with one project-wide timeout. Abrupt
+loss still uses durable leases and recovery; application effects remain at-least-once and must be
+idempotent. Back up the database, immutable program store, complete
+`execution-artifacts` volume and configuration together with writers and retention
+maintenance stopped. Include the hidden `.ledgence-artifact-store` marker and
+preserve the configured `store_id`. Restore that complete store into an empty
+target before any server or retention process opens it; otherwise a new marker
+conflicts with the restored catalog. The target path may change, but the marker
+bytes and `store_id` must not. Worker cache and `artifact-spool` can be recreated
+and are not recovery copies. Copying a live PostgreSQL volume is not a consistent
+backup; use PostgreSQL backup tools and validate restoration before upgrades.
+See [artifact recovery](execution-artifacts.md#retention-and-backup) for the
+different S3 identity constraints.
 
-Before changing the source image or schema, back up the database/program store,
+Before changing the source image or schema, capture that complete recovery set,
 stop the worker and orchestrator, build the chosen committed source, rerun the
 explicit migration job, then start the services. Forward migration does not imply
 that older binaries are compatible with the new schema. Restore a matching
@@ -197,12 +206,14 @@ backup when rollback requires it; do not invent down migrations.
 To erase this local deployment's data intentionally:
 
 ```sh
-docker compose -f deploy/local/compose.yaml down --volumes --timeout 65
+docker compose -f deploy/local/compose.yaml down --volumes
 ```
 
 Include the same `-p` and override `-f` options when operating on the ElasticMQ
-project. This removes that project's database, program store, cache and callback
-data. It does not remove unrelated projects or images.
+project. This removes that project's database, program store, execution artifacts,
+worker cache, artifact spool and callback data. It does not remove unrelated
+projects or images. Older saved kits retain their own volume layout and grace
+periods; installing a newer CLI does not rewrite them.
 
 ## Qualification and distribution boundary
 

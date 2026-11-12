@@ -228,6 +228,10 @@ fn relocated_bundle_initializes_once_and_preserves_configuration_and_volumes() {
         assert_eq!(record["compose_file"], Value::Null);
         assert_eq!(record["profiles"], Value::Null);
         assert_eq!(record["default_platform"], Value::Null);
+        if compose_record(record, "down") {
+            assert!(!arguments.contains(&json!("--timeout")));
+            assert!(!arguments.contains(&json!("-t")));
+        }
         if compose_record(record, "up") {
             assert!(arguments.contains(&json!("--wait")));
             assert!(arguments.contains(&json!("--no-build")));

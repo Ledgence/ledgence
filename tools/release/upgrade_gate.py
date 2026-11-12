@@ -55,7 +55,7 @@ def main(*, predecessor, deployment, exercise, description):
             parser.error(f"{name} is required")
         pgtools[name] = executable
     provenance = inputs(old, bins, console, runner, predecessor=predecessor)
-    names = ["ldg_upgrade_" + uuid.uuid4().hex for _ in range(2)]
+    names = ["ldg_upgrade_" + uuid.uuid4().hex for _ in range(3 if predecessor == "0.9.0" else 2)]
     urls = [owned_database_url(parent, name) for name in names]
     directory = args.evidence.resolve()
     directory.mkdir(parents=True, exist_ok=False, mode=0o700)
@@ -108,6 +108,7 @@ def main(*, predecessor, deployment, exercise, description):
                     urls[1],
                     Path(scratch) / "backup.dump",
                     pgtools,
+                    **({"artifact_restore_url": urls[2]} if predecessor == "0.9.0" else {}),
                 )
         finally:
             try:
