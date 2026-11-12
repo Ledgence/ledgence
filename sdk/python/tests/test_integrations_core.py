@@ -4,6 +4,7 @@ import contextvars
 from dataclasses import replace
 import json
 import unittest
+from unittest.mock import patch
 
 import test_workflow
 from ledgence.worker.workflow import OperationKind, WorkflowError, WorkflowContext
@@ -64,6 +65,18 @@ class IntegrationCoreTests(unittest.IsolatedAsyncioTestCase):
             return result
         return start_run(context, spec=spec, prompt=prompt, factory=factory, profile=PROFILE,
                          dependencies=(), normalization="fixture-v1", session_factory=make, **kwargs)
+
+    def run_agent_with_controlled_deadline(self, context, factory, **kwargs):
+        # Capture the production timer without letting machine speed choose which
+        # lifecycle phase it interrupts. No coroutine runs before cancellation.
+        with patch.object(context._loop, "call_later", wraps=context._loop.call_later) as schedule:
+            result = self.run_agent(context, factory, **kwargs)
+            result._state._timer.cancel()
+        schedule.assert_called_once()
+        delay, expire = schedule.call_args.args
+        self.assertEqual(delay, result._state.spec.limits.timeout_ms / 1000)
+        self.assertEqual(schedule.call_args.kwargs, {})
+        return result, expire
 
     async def test_manifest_ack_precedes_factory_and_never_awaited_runs_are_owned(self):
         acknowledged = asyncio.Event()
@@ -466,21 +479,71 @@ class IntegrationCoreTests(unittest.IsolatedAsyncioTestCase):
             return 1
         async def execute(state): return await one_model(state, external)
         context = self.context()
-        result = self.run_agent(context, lambda _: execute, session=EvidenceSession,
-                                spec=replace(SPEC, limits=AgentLimits(timeout_ms=5)))
-        await running.wait()
-        state = self.sessions[0].state
-        await state.stopping.wait()
-        self.assertFalse(state.task.done())
-        self.assertNotIn("close", self.sessions[0].events)
-        release.set()
+        result, expire = self.run_agent_with_controlled_deadline(
+            context, lambda _: execute, session=EvidenceSession,
+            spec=replace(SPEC, limits=AgentLimits(timeout_ms=5)))
+        state = result._state
+        try:
+            await asyncio.wait_for(running.wait(), 1)
+            self.assertFalse(state.stopped)
+            context._loop.call_soon(expire)
+            await asyncio.wait_for(state.stopping.wait(), 1)
+            await asyncio.sleep(0)
+            self.assertFalse(state.task.done())
+            self.assertNotIn("close", self.sessions[0].events)
+        finally:
+            release.set()
         with self.assertRaisesRegex(AgentExecutionError, "deadline_exceeded") as caught:
-            await result
+            await asyncio.wait_for(asyncio.shield(result), 1)
         self.assertIn("close", self.sessions[0].events)
         self.assertEqual(caught.exception.lifecycle, state.lifecycle)
+        self.assertTrue(caught.exception.external_work_may_have_occurred)
         self.assertTrue(caught.exception.lifecycle.stop_requested)
         self.assertTrue(caught.exception.lifecycle.stop_acknowledged)
         self.assertTrue(caught.exception.lifecycle.transport_closed)
+
+    async def test_deadline_before_manifest_ack_retains_ack_and_prevents_dispatch(self):
+        committing, acknowledge = asyncio.Event(), asyncio.Event()
+        factories, callbacks = [], []
+        async def rpc(operation, record):
+            self.assertEqual(operation, "local_step.commit")
+            committing.set()
+            await acknowledge.wait()
+            self.commits.append(json.loads(json.dumps(record)))
+            return {"committed": True}
+        async def external(*, request):
+            callbacks.append(True)
+            return 1
+        async def execute(state): return await one_model(state, external)
+        def factory(state):
+            factories.append(True)
+            return execute
+        context = self.context(rpc=rpc)
+        result, expire = self.run_agent_with_controlled_deadline(
+            context, factory, spec=replace(SPEC, limits=AgentLimits(timeout_ms=5)))
+        state = result._state
+        try:
+            await asyncio.wait_for(committing.wait(), 1)
+            context._loop.call_soon(expire)
+            await asyncio.wait_for(state.stopping.wait(), 1)
+            await asyncio.sleep(0)
+            self.assertFalse(state.task.done())
+            self.assertTrue(any(not child.done() for child in state.children))
+            self.assertEqual(self.commits, [])
+            self.assertEqual(self.sessions, [])
+            self.assertEqual(factories, [])
+            self.assertEqual(callbacks, [])
+        finally:
+            acknowledge.set()
+        with self.assertRaisesRegex(AgentExecutionError, "deadline_exceeded") as caught:
+            await asyncio.wait_for(asyncio.shield(result), 1)
+        self.assertEqual(len(self.commits), 1)
+        self.assertTrue(all(child.done() for child in state.children))
+        self.assertEqual(self.sessions, [])
+        self.assertEqual(factories, [])
+        self.assertEqual(callbacks, [])
+        self.assertFalse(caught.exception.external_work_may_have_occurred)
+        self.assertTrue(caught.exception.lifecycle.stop_requested)
 
     async def test_native_failure_delivers_final_cleanup_evidence(self):
         class EvidenceSession(Session):
