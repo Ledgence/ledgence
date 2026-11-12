@@ -17,6 +17,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+# Support both direct execution and importlib loading from an unrelated cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'release'))
 from local_distribution import verify_directory
 from distribution_shutdown import shutdown_upload, verify_restarted_upload

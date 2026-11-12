@@ -5,6 +5,8 @@ import itertools
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import Mock, call, patch
 
@@ -34,6 +36,24 @@ class Clock:
     def sleep(self, duration):
         self.sleeps.append(duration)
         self.now += duration
+
+
+class DistributionImportTests(unittest.TestCase):
+    def test_isolated_import_from_unrelated_directory_resolves_owned_helpers(self):
+        script = Path(__file__).resolve().parents[2] / 'tools/check-distribution.py'
+        code = """import importlib.util, pathlib, sys
+spec = importlib.util.spec_from_file_location('distribution_gate', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+helper = sys.modules['distribution_shutdown']
+assert pathlib.Path(helper.__file__).resolve() == pathlib.Path(sys.argv[1]).parent / 'distribution_shutdown.py'
+assert module.shutdown_upload is helper.shutdown_upload
+assert module.verify_restarted_upload is helper.verify_restarted_upload
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, '-I', '-B', '-c', code, str(script)],
+                                    cwd=directory, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class WorkerReadinessTests(unittest.TestCase):
@@ -231,7 +251,25 @@ class RestartChecksTests(unittest.TestCase):
                 return ''
 
             acceptance.run = Mock(side_effect=run)
-            acceptance.verify_cli()
+            proof = {'fixture': 'shutdown checked by the real Docker gate'}
+
+            def shutdown(subject, down, compose, base, workflow):
+                self.assertIs(subject, acceptance)
+                self.assertEqual(base, 'http://127.0.0.1:12345')
+                self.assertEqual(workflow, 'before')
+                subject.worker_session_ids.assert_called_once_with(base=base)
+                subject.run(down, timeout=420)
+                return proof
+
+            # This offline fixture owns restart orchestration only. The real
+            # transfer and its persisted reference remain in the Docker gate.
+            with patch.object(distribution, 'shutdown_upload', side_effect=shutdown) as stop, \
+                    patch.object(distribution, 'verify_restarted_upload') as restored, \
+                    patch.object(distribution.urllib.request, 'urlopen', side_effect=AssertionError('unexpected network')):
+                acceptance.verify_cli()
+            stop.assert_called_once()
+            restored.assert_called_once_with(acceptance, 'http://127.0.0.1:12345', proof)
+            self.assertIs(acceptance.report['cli']['artifact_shutdown'], proof)
             acceptance.worker_session_ids.assert_called_once_with(base='http://127.0.0.1:12345')
             self.assertEqual(acceptance.console.call_args_list, [
                 call([], base='http://127.0.0.1:12345'),
