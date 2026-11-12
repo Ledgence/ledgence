@@ -76,6 +76,17 @@ impl TestDb {
         // The current fixture seeds ungoverned attempts only. Supply empty lookup
         // relations until the historical rows have been written, then remove
         // them so the real migration receives precisely the old schema.
+        // Current instance binding audits artifact scopes even though these
+        // historical schemas predate execution artifacts. Supply only empty
+        // scope lookups: no artifact store or execution authority is fabricated.
+        sqlx::raw_sql(
+            "CREATE TABLE artifact_roots(tenant_id text,namespace text);
+             CREATE TABLE execution_artifacts(tenant_id text,namespace text);
+             CREATE TABLE artifact_uploads(tenant_id text,namespace text)",
+        )
+        .execute(&self.store.pool)
+        .await
+        .unwrap();
         sqlx::raw_sql("CREATE TABLE run_budgets(tenant_id text,namespace text); CREATE TABLE run_budget_members(tenant_id text,namespace text); CREATE TABLE run_budget_entries(tenant_id text,namespace text);").execute(&self.store.pool).await.unwrap();
         sqlx::raw_sql(
             "CREATE TABLE queue_concurrency_policies(tenant_id text,namespace text,queue text,maximum bigint,occupied bigint,timeout_ms bigint);
@@ -86,6 +97,21 @@ impl TestDb {
     }
     pub(crate) async fn finish_legacy_task_seed(&self) {
         let mut tx = self.store.pool.begin().await.unwrap();
+        let artifacts: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT FROM artifact_roots) OR EXISTS(SELECT FROM execution_artifacts) OR EXISTS(SELECT FROM artifact_uploads)",
+        ).fetch_one(&mut *tx).await.unwrap();
+        assert!(
+            !artifacts,
+            "historical fixtures may not exercise execution artifacts"
+        );
+        sqlx::raw_sql("DROP TABLE artifact_roots,execution_artifacts,artifact_uploads")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let removed: bool = sqlx::query_scalar(
+            "SELECT to_regclass('artifact_roots') IS NULL AND to_regclass('execution_artifacts') IS NULL AND to_regclass('artifact_uploads') IS NULL",
+        ).fetch_one(&mut *tx).await.unwrap();
+        assert!(removed, "migration must receive the pre-artifact schema");
         let budgeted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT FROM run_budgets) OR EXISTS(SELECT FROM run_budget_members) OR EXISTS(SELECT FROM run_budget_entries) OR EXISTS(SELECT FROM attempts WHERE budget_denial_bytes IS NOT NULL)").fetch_one(&mut *tx).await.unwrap();
         assert!(!budgeted, "historical fixtures may not use run budgets");
         sqlx::raw_sql("DROP TABLE run_budgets,run_budget_members,run_budget_entries")
