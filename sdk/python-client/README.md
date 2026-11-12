@@ -8,7 +8,7 @@ self-hosted Ledgence service. The distribution is `ledgence-client`; its public
 import is `ledgence.client`. Python 3.11–3.14 is tested on Linux x86_64 and macOS
 arm64. Public APIs may evolve before version 1.0.
 
-This README documents `ledgence-client` 0.10.0. Use matching Ledgence server
+This README documents `ledgence-client` 0.10.1. Use matching Ledgence server
 support. See [GitHub releases](https://github.com/Ledgence/ledgence/releases)
 for verified published versions and distribution channels.
 
@@ -686,7 +686,7 @@ the authenticated worker credential, callback and ingress (`live_confirm` or
 `legacy_attempt`, `legacy_fence` and `legacy_journal` sources remain explicitly
 unattributed. A confirmed journal is Ledgence's recorded execution result, not
 proof of exactly-once provider effects. Private lease owners and frozen worker
-commands are never returned. See the [effect evidence contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/effect-evidence.md).
+commands are never returned. See the [effect evidence contract](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/effect-evidence.md).
 
 <a id="operator-effect-assessments-development"></a>
 
@@ -871,7 +871,7 @@ failure. Closing an unknown outcome does not assert provider truth or authorize
 redispatch. A selected workflow wake is never rewritten.
 
 See the [provider recovery guide](https://docs.ledgence.com/how-to/recover-provider-operations/)
-and [source contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/provider-operations.md).
+and [source contract](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/provider-operations.md).
 
 ## Resource policies and admission inspection
 
@@ -935,7 +935,7 @@ original source; release and completion must not release occupancy twice.
 Worker Start/Finish calls are deliberately absent from this application client
 surface. The runtime owns their lease identity and execution permission. Use
 `Workflow.operation`, `ctx.request_admission` and `ctx.admitted_operation` from
-[`ledgence.worker`](https://github.com/Ledgence/ledgence/blob/v0.10.0/sdk/python/README.md#durable-resource-admission-development-source)
+[`ledgence.worker`](https://github.com/Ledgence/ledgence/blob/v0.10.1/sdk/python/README.md#durable-resource-admission-development-source)
 for governed execution.
 
 
@@ -964,11 +964,11 @@ between total assignment generations and retry budget consumed. Inspect a source
 with `await client.task_admissions.inspect(task.id, generation=1)`; release only
 a reviewed source with `client.task_admissions.release(inspected, request_id=...,
 reason=...)`. No automatic retry of a mutation. See the [task admission
-contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/resource-admission.md#standalone-task-admission).
+contract](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/resource-admission.md#standalone-task-admission).
 
 ### Queue concurrency
 
-Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching 0.9.0 server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/queue-concurrency.md).
+Use `client.queue_policies.get`, `list`, `holds`, `put` and `release` with a matching 0.9.0 server and a scoped credential. Reconcile an uncertain write by submitting the same arguments and request ID. Release takes an uncertain hold inspected at the same server and scope. [Configure a queue and inspect a hold](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/queue-concurrency.md).
 
 ## Find outstanding resource sources
 
@@ -998,11 +998,11 @@ source evidence. Each inspection has its own audit record.
 
 ## Weighted resource offers
 
-Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy(fair_sharing=...)` to weight offers between queues. Read a page with `await client.resources.decisions("support-model", limit=20)`, then pass `before=page.next` for older offers when `page.next` is present. [Policy, example and compatibility](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/resource-admission.md#weighted-offers).
+Pass `ResourceFairSharing` and its `ResourceFairGroup` values to `ResourcePolicy(fair_sharing=...)` to weight offers between queues. Read a page with `await client.resources.decisions("support-model", limit=20)`, then pass `before=page.next` for older offers when `page.next` is present. [Policy, example and compatibility](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/resource-admission.md#weighted-offers).
 
 ### Shared run budgets
 
-Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/v0.10.0/examples/shared-run-budget).
+Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/v0.10.1/examples/shared-run-budget).
 
 <a id="execution-progress-development-source"></a>
 
@@ -1026,8 +1026,8 @@ cancels or resubmits execution. Other transport, permission and protocol errors
 propagate. Default completion means a terminal snapshot was drained, not that no
 late cleanup event can arrive. `subscribe()` remains terminal webhook registration.
 These methods require matching Ledgence 0.10 server support and are not in
-0.9.0 packages. [Contract](https://github.com/Ledgence/ledgence/blob/v0.10.0/docs/execution-progress.md)
-and [runnable example](https://github.com/Ledgence/ledgence/tree/v0.10.0/examples/execution-progress).
+0.9.0 packages. [Contract](https://github.com/Ledgence/ledgence/blob/v0.10.1/docs/execution-progress.md)
+and [runnable example](https://github.com/Ledgence/ledgence/tree/v0.10.1/examples/execution-progress).
 
 <a id="execution-artifacts-development-source"></a>
 

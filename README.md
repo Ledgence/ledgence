@@ -44,10 +44,10 @@ See the [release notes](docs/releases/0.9.0.md) and the
 [PostgreSQL upgrade procedure](docs/postgres.md#upgrade-from-080-to-090).
 Before 1.0, pin component versions and review the changes before upgrading.
 
-**0.10.0 candidate:** current source adds resumable lifecycle progress, immutable
+**0.10.1 candidate:** current source adds resumable lifecycle progress, immutable
 execution files, three optional agent-framework adapters and an expanded program
 package profile. These are not in the verified 0.9.0 downloads above. Read the
-[candidate release notes](docs/releases/0.10.0.md) and
+[candidate release notes](docs/releases/0.10.1.md) and
 [0.9 to 0.10 upgrade preparation](docs-site/src/content/docs/how-to/upgrade-to-0-10.md)
 before evaluating matching candidate components.
 

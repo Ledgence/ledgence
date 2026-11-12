@@ -68,6 +68,6 @@ that same task.
 - **Already have local data?** Read [Upgrade to 0.9.0](/how-to/upgrade-to-0-9)
   before changing that installation. Updating the CLI does not upgrade saved
   services or their database.
-- **Evaluating the 0.10.0 candidate?** Use the [0.9 to 0.10 upgrade guide](/how-to/upgrade-to-0-10)
+- **Evaluating the 0.10.1 candidate?** Use the [0.9 to 0.10 upgrade guide](/how-to/upgrade-to-0-10)
   with matching candidate components. The installation paths above continue to
   describe the verified 0.9.0 release until publication is complete.

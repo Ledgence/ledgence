@@ -73,7 +73,7 @@ export default defineConfig({
         { label: 'Configure instance access', slug: 'how-to/configure-instance-access' },
         { label: 'Inspect external effects', slug: 'how-to/inspect-effects' },
         { label: 'Inspect operator audit', slug: 'how-to/audit-operators' },
-        { label: 'Prepare a 0.10.0 upgrade (candidate)', slug: 'how-to/upgrade-to-0-10' },
+        { label: 'Prepare a 0.10.1 upgrade (candidate)', slug: 'how-to/upgrade-to-0-10' },
         { label: 'Upgrade to 0.9.0', slug: 'how-to/upgrade-to-0-9' },
         { label: 'Upgrade to 0.8.0', slug: 'how-to/upgrade-to-0-8' },
         { label: 'Upgrade to 0.7.0', slug: 'how-to/upgrade-to-0-7' },
