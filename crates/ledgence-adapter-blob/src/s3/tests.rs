@@ -36,12 +36,24 @@ async fn unpolled_storage_stream_expires_without_a_reader_poll() {
         media_type: "application/octet-stream".into(),
         filename: None,
     };
-    let mut reader = S3Reader::new(
-        ByteStream::from_static(b"data"),
-        metadata,
-        Instant::now() + Duration::from_millis(30),
-    );
-    tokio::time::sleep(Duration::from_millis(60)).await;
-    assert!(reader.body.lock().await.is_none());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut reader = S3Reader::new(ByteStream::from_static(b"data"), metadata, deadline);
+    assert!(reader.body.lock().await.is_some());
+    tokio::time::pause();
+    tokio::time::advance(
+        tokio::time::Instant::from_std(deadline) - tokio::time::Instant::now()
+            + Duration::from_millis(1),
+    )
+    .await;
+    tokio::time::resume();
+    // Advancing makes the watcher eligible; wait for its effect independently
+    // of read_chunk, which would otherwise be able to mask a missing watcher.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while reader.body.lock().await.is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert!(reader.read_chunk(4).await.is_err());
 }

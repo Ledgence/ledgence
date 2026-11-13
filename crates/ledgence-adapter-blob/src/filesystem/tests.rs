@@ -3,7 +3,7 @@ use ledgence_orchestration_api::ArtifactMetadata;
 use std::time::Duration;
 use tempfile::tempdir;
 fn deadline() -> Instant {
-    Instant::now() + Duration::from_secs(20)
+    (tokio::time::Instant::now() + Duration::from_secs(20)).into_std()
 }
 struct Repeated {
     byte: u8,
@@ -281,6 +281,7 @@ async fn drain_retains_timed_out_write_until_staging_cleanup_is_confirmed() {
         .unwrap();
     let object = object(&store, 1, 1);
     let obstructed = Arc::new(Notify::new());
+    let put_deadline = deadline();
     let operation = {
         let store = store.clone();
         let object = object.clone();
@@ -290,22 +291,37 @@ async fn drain_retains_timed_out_write_until_staging_cleanup_is_confirmed() {
         };
         tokio::spawn(async move {
             store
-                .put_once(
-                    &object,
-                    Box::new(reader),
-                    Instant::now() + Duration::from_millis(100),
-                )
+                .put_once(&object, Box::new(reader), put_deadline)
                 .await
         })
     };
     tokio::time::timeout(Duration::from_secs(2), obstructed.notified())
         .await
         .unwrap();
-    assert_eq!(operation.await.unwrap().unwrap(), BlobPutOutcome::Uncertain);
+    assert_eq!(store.inner.writes.lock().unwrap().active, 1);
+    assert_eq!(store.inner.stages.available_permits(), 1);
+    assert!(!operation.is_finished());
+    // The obstruction is installed before expiring the caller's deadline;
+    // physical IO and cleanup retries continue with a running clock.
+    tokio::time::pause();
+    tokio::time::advance(
+        tokio::time::Instant::from_std(put_deadline) - tokio::time::Instant::now()
+            + Duration::from_millis(1),
+    )
+    .await;
+    tokio::time::resume();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), operation)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+        BlobPutOutcome::Uncertain
+    );
     assert_eq!(store.inner.stages.available_permits(), 1);
     assert!(
         store
-            .drain(Instant::now() + Duration::from_millis(20))
+            .drain((tokio::time::Instant::now() + Duration::from_millis(20)).into_std())
             .await
             .is_err()
     );
