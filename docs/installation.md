@@ -4,8 +4,8 @@ Start with [Choose a local installation](https://docs.ledgence.com/getting-start
 Choose one route; each gives you an API, Console, PostgreSQL and a Python worker.
 The guides target the published **Ledgence 0.9.0** release.
 
-Current source is the **0.10.1 candidate**, with separate
-[release notes](releases/0.10.1.md) and
+Current source is the **0.10.2 candidate**, with separate
+[release notes](releases/0.10.2.md) and
 [upgrade preparation](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
 It is not yet the verified distribution selected by the installation paths below.
 

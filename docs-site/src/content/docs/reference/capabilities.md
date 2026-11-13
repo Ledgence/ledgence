@@ -253,7 +253,7 @@ not live CLI/provider behavior. Models/tools remain operator-trusted; declared
 pure transforms and read tools have explicit bounds and supported native APIs.
 [Choose a framework profile and prepare its factory](/how-to/agent-frameworks).
 
-The 0.10.1 candidate also negotiates an explicit 8,192-entry application-package
+The 0.10.2 candidate also negotiates an explicit 8,192-entry application-package
 profile while retaining legacy 4,096-entry behavior. Upgrade every eligible worker
 before publishing larger packages; compatible older packages need no forced
 rebuild. [Prepare the 0.9-to-0.10 upgrade](/how-to/upgrade-to-0-10) for matching
