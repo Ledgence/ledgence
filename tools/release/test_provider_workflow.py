@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -215,6 +216,7 @@ import os, sys
 from pathlib import Path
 assert '--locked' in sys.argv
 target = Path(os.environ.get('CARGO_TARGET_DIR', str(Path.cwd() / 'target'))) / 'debug'
+assert target.resolve() == (Path(os.environ['GITHUB_WORKSPACE']) / 'target/debug').resolve()
 is_old = Path.cwd().name == 'ledgence-predecessor-source'
 label = 'prior' if is_old else ('current-all' if '--all-features' in sys.argv else 'current-default')
 binary = target / ('examples/otlp-capture' if '--example' in sys.argv else 'ledgence')
@@ -235,15 +237,26 @@ for line in Path('SHA256SUMS').read_text().splitlines():
     assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest
 """)
             checksum.chmod(0o755)
-            env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
-                       RUNNER_TEMP=str(run), GITHUB_WORKSPACE=str(checkout),
-                       GITHUB_SHA=current, GITHUB_RUN_ATTEMPT="1",
-                       GITHUB_OUTPUT=str(base / "outputs"), PROVIDER_PREDECESSOR_SHA=prior,
-                       LEDGENCE_POSTGRES_CONTAINER="unused", LEDGENCE_PYTHON="unused",
-                       GITHUB_ENV=str(base / "environment"))
+            # A developer's shared Cargo cache must never receive fixture executables.
+            shared_target = base / "shared target"
+            sentinel = shared_target / "debug/ledgence"
+            sentinel.parent.mkdir(parents=True)
+            sentinel.write_bytes(b"existing developer executable")
+            with patch.dict(os.environ, {"CARGO_TARGET_DIR": str(shared_target)}):
+                env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ["PATH"],
+                           CARGO_TARGET_DIR=str(checkout / "target"),
+                           RUNNER_TEMP=str(run), GITHUB_WORKSPACE=str(checkout),
+                           GITHUB_SHA=current, GITHUB_RUN_ATTEMPT="1",
+                           GITHUB_OUTPUT=str(base / "outputs"), PROVIDER_PREDECESSOR_SHA=prior,
+                           LEDGENCE_POSTGRES_CONTAINER="unused", LEDGENCE_PYTHON="unused",
+                           GITHUB_ENV=str(base / "environment"))
             subprocess.run(["bash", "-eu", "-o", "pipefail", "-c", script(
                 "Build each qualified executable configuration once"
             )], cwd=checkout, env=env, check=True, capture_output=True, text=True)
+            self.assertEqual(sentinel.read_bytes(), b"existing developer executable")
+            self.assertEqual(sorted(path.relative_to(shared_target).as_posix()
+                                    for path in shared_target.rglob("*") if path.is_file()),
+                             ["debug/ledgence"])
             bundle = run / "ledgence-acceptance-binaries"
             self.assertEqual((bundle / "default/ledgence").read_text(), "current-default")
             self.assertEqual((bundle / "all-features/ledgence").read_text(), "current-all")

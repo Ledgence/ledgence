@@ -4,9 +4,9 @@ description: Rehearse the 0.10 candidate migration while preserving execution fi
 ---
 
 **Candidate source, not yet a verified public distribution.** The verified release
-remains 0.9.0. Use matching 0.10.1 candidate components for this rehearsal; do not
+remains 0.9.0. Use matching 0.10.2 candidate components for this rehearsal; do not
 substitute a source version bump for verified native bundles, packages, images or
-a local kit. The [candidate release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.10.1.md)
+a local kit. The [candidate release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.10.2.md)
 describe lifecycle progress, execution files, optional framework adapters and the
 expanded program-package profile.
 
@@ -66,7 +66,7 @@ the deployment's secret mechanism to select the stopped installation's database:
 ./bin/ledgence orchestrator migrate
 ```
 
-Expect `ledgence 0.10.1`. The second migration run verifies an already completed
+Expect `ledgence 0.10.2`. The second migration run verifies an already completed
 ledger without reapplying changes. If the bounded lock/statement budget is too
 short for the rehearsed operation, use an explicit larger `--timeout-ms`, for
 example `1800000`. After interruption or timeout, rerun the same migrator and

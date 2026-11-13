@@ -150,7 +150,7 @@ class FrameworkWorkflowTests(unittest.TestCase):
             root=Path(temporary);run=root/'run';run.mkdir();stage=root/'stage';(stage/'bin').mkdir(parents=True)
             (stage/'bin/ledgence').write_text('inert candidate executable')
             shutil.copytree(ROOT/'sdk/python/ledgence',stage/'runtime/ledgence',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
-            provenance=dict(source_commit=SHA,source_tree_clean=True,console={'mode':'headless'},package_version='0.10.1',target='x86_64-unknown-linux-gnu')
+            provenance=dict(source_commit=SHA,source_tree_clean=True,console={'mode':'headless'},package_version='0.10.2',target='x86_64-unknown-linux-gnu')
             if mutation=='source': provenance['source_commit']='b'*40
             if mutation=='dirty': provenance['source_tree_clean']=False
             if mutation=='vendor':
