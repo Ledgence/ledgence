@@ -63,6 +63,11 @@ async fn fresh_handoff_charges_and_traces_only_issued_source_calls() {
     use poll_plan::{PollPlan, PollPlanner, PollStrategy};
     use tracing_subscriber::prelude::*;
 
+    // Other parallel tests intentionally have no subscriber. Keep a second
+    // dispatcher alive so tracing-core cannot cache this callsite as disabled
+    // when one of those threads reaches it before this scoped subscriber.
+    let _other_dispatch = tracing::Dispatch::new(tracing_subscriber::registry());
+
     for (stopping, paused) in [(true, false), (false, true), (false, false)] {
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(stopping),
