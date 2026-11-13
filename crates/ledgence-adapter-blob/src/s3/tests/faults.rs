@@ -21,6 +21,9 @@ struct Server {
     endpoint: String,
     puts: Arc<AtomicUsize>,
     accepted: Arc<AtomicBool>,
+    put_received: Arc<tokio::sync::Notify>,
+    accept_put: Arc<tokio::sync::Notify>,
+    put_accepted: Arc<tokio::sync::Notify>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Drop for Server {
@@ -34,12 +37,21 @@ impl Server {
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let puts = Arc::new(AtomicUsize::new(0));
         let accepted = Arc::new(AtomicBool::new(false));
+        let put_received = Arc::new(tokio::sync::Notify::new());
+        let accept_put = Arc::new(tokio::sync::Notify::new());
+        let put_accepted = Arc::new(tokio::sync::Notify::new());
         let count = puts.clone();
         let stored = accepted.clone();
+        let received = put_received.clone();
+        let accept = accept_put.clone();
+        let confirmed = put_accepted.clone();
         let task = tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let count = count.clone();
                 let stored = stored.clone();
+                let received = received.clone();
+                let accept = accept.clone();
+                let confirmed = confirmed.clone();
                 tokio::spawn(async move {
                     let Some(method) = request(&mut stream).await else {
                         return;
@@ -53,8 +65,13 @@ impl Server {
                                     stored.store(true, Ordering::SeqCst);
                                 }
                                 Fault::LatePut => {
-                                    tokio::time::sleep(Duration::from_millis(150)).await;
+                                    // request() has consumed the complete PUT body.
+                                    // Keep acceptance under test control even after
+                                    // the client has timed out and disconnected.
+                                    received.notify_one();
+                                    accept.notified().await;
                                     stored.store(true, Ordering::SeqCst);
+                                    confirmed.notify_one();
                                     respond(
                                         &mut stream,
                                         200,
@@ -120,6 +137,9 @@ impl Server {
             endpoint,
             puts,
             accepted,
+            put_received,
+            accept_put,
+            put_accepted,
             task,
         }
     }
@@ -233,7 +253,7 @@ fn reader() -> Box<dyn ArtifactReader> {
     })
 }
 fn deadline() -> Instant {
-    Instant::now() + Duration::from_secs(5)
+    (tokio::time::Instant::now() + Duration::from_secs(5)).into_std()
 }
 #[tokio::test]
 async fn lost_reply_and_retryable_failure_do_not_retry_put() {
@@ -267,23 +287,45 @@ async fn missing_probe_is_not_quiescence_after_timed_out_put() {
     let server = Server::start(Fault::LatePut).await;
     let store = server.store().await;
     let object = object(&store);
+    let put_deadline = deadline();
+    let operation = {
+        let store = store.clone();
+        let object = object.clone();
+        tokio::spawn(async move { store.put_once(&object, reader(), put_deadline).await })
+    };
+    tokio::time::timeout(Duration::from_secs(2), server.put_received.notified())
+        .await
+        .unwrap();
+    assert_eq!(server.puts.load(Ordering::SeqCst), 1);
+    assert!(!server.accepted.load(Ordering::SeqCst));
+    assert!(!operation.is_finished());
+    tokio::time::pause();
+    tokio::time::advance(
+        tokio::time::Instant::from_std(put_deadline) - tokio::time::Instant::now()
+            + Duration::from_millis(1),
+    )
+    .await;
+    tokio::time::resume();
     assert_eq!(
-        store
-            .put_once(
-                &object,
-                reader(),
-                Instant::now() + Duration::from_millis(50)
-            )
+        tokio::time::timeout(Duration::from_secs(2), operation)
             .await
+            .unwrap()
+            .unwrap()
             .unwrap(),
         BlobPutOutcome::Uncertain
     );
     assert!(store.open(&object, deadline()).await.unwrap().is_none());
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(!server.accepted.load(Ordering::SeqCst));
+    assert_eq!(server.puts.load(Ordering::SeqCst), 1);
+    server.accept_put.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), server.put_accepted.notified())
+        .await
+        .unwrap();
     assert!(server.accepted.load(Ordering::SeqCst));
     assert!(store.open(&object, deadline()).await.unwrap().is_some());
     assert_eq!(server.puts.load(Ordering::SeqCst), 1);
 }
+
 #[tokio::test]
 async fn actual_stream_corruption_and_truncation_are_rejected() {
     for fault in [Fault::CorruptGet, Fault::TruncatedGet] {

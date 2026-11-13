@@ -1,4 +1,5 @@
 use super::*;
+use std::{future::poll_fn, task::Poll};
 use tempfile::tempdir;
 
 fn deadline() -> Instant {
@@ -85,12 +86,26 @@ async fn retained_unpolled_reader_expires_independently() {
     let factory = FileArtifactSpoolFactory::open(directory.path())
         .await
         .unwrap();
-    let writer = factory
-        .create_inner(false, 0, Instant::now() + Duration::from_millis(70))
-        .await
-        .unwrap();
+    let writer = factory.create_inner(false, 0, deadline()).await.unwrap();
+    let lease = writer.lease.clone();
     let mut reader = Box::new(writer).finish().await.unwrap();
+    assert!(lease.path().is_file());
+    assert!(!lease.complete.load(Ordering::Acquire));
+    assert_eq!(factory.inner.state.lock().unwrap().leases.len(), 1);
+    assert_eq!(factory.inner.downloads.available_permits(), 3);
+
+    // Advance only after real filesystem preparation. Expiry must clean up a
+    // live reader without relying on a read, Drop, or fast sync_all in CI.
+    tokio::time::pause();
+    tokio::time::advance(
+        tokio::time::Instant::from_std(lease.deadline) - tokio::time::Instant::now()
+            + Duration::from_millis(1),
+    )
+    .await;
+    tokio::time::resume();
     wait_empty(&factory).await;
+    assert!(lease.complete.load(Ordering::Acquire));
+    assert!(!lease.path().exists());
     assert_eq!(factory.inner.downloads.available_permits(), 4);
     assert!(reader.read_chunk(1).await.is_err());
     drop(reader);
@@ -196,22 +211,40 @@ async fn interrupted_io(kind: u8) {
         release_rx.recv().unwrap();
     });
     locked_rx.await.unwrap();
+    let (pending_tx, pending_rx) = tokio::sync::oneshot::channel();
     let io = tokio::spawn(async move {
-        match kind {
-            0 => {
-                writer.unwrap().append(vec![]).await.unwrap();
+        let operation = async move {
+            match kind {
+                0 => {
+                    writer.unwrap().append(vec![]).await.unwrap();
+                }
+                1 => {
+                    let _ = Box::new(writer.unwrap()).finish().await;
+                }
+                _ => {
+                    let _ = reader.unwrap().read_chunk(3).await;
+                }
             }
-            1 => {
-                let _ = Box::new(writer.unwrap()).finish().await;
+        };
+        tokio::pin!(operation);
+        let mut pending_tx = Some(pending_tx);
+        poll_fn(|cx| {
+            // The lease mutex is still held. Polling to Pending establishes
+            // that blocking IO was queued before the caller is cancelled.
+            assert!(operation.as_mut().poll(cx).is_pending());
+            if let Some(pending_tx) = pending_tx.take() {
+                pending_tx.send(()).unwrap();
             }
-            _ => {
-                let _ = reader.unwrap().read_chunk(3).await;
-            }
-        }
+            Poll::<()>::Pending
+        })
+        .await;
     });
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    tokio::time::timeout(Duration::from_secs(2), pending_rx)
+        .await
+        .unwrap()
+        .unwrap();
     io.abort();
-    let _ = io.await;
+    assert!(io.await.unwrap_err().is_cancelled());
     assert_eq!(factory.inner.uploads.available_permits(), 1);
     assert!(
         factory
