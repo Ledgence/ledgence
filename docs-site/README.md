@@ -28,10 +28,14 @@ release tag, native targets and independently published package versions.
 checkout revision. When no product SHA is configured, the build resolves the
 local release tag or omits the unknown SHA instead of substituting HEAD.
 
-`source-features.json` distinguishes released features from development-only
-execution progress and execution files. Released capabilities include installation,
-program authoring, approval and operation inspection, protected writes, instance
-access, operator audit, retained evidence, native assessments, provider recovery, resource admission, weighted offers, run budgets, worker poll plans and queue concurrency.
+`source-features.json` records released capabilities and their verified provenance,
+including installation, offline program scaffolding, program publication, approvals,
+operation inspection, protected writes, instance access, operator audit, retained
+evidence, provider recovery, resource admission, weighted offers, run budgets,
+worker poll plans, queue concurrency, resumable execution progress, execution
+files and optional framework adapters. The program-publication guide covers the
+negotiated 8,192-entry package profile. Future unreleased features remain labeled
+as development.
 Generated provenance uses the `release` channel. Native targets remain Linux
 x86_64/glibc, qualified on Ubuntu 24.04, and macOS arm64. Bundle provenance retains
 dynamic-library requirements. Verify all published artifacts before deploying
@@ -45,9 +49,9 @@ The site provides Diátaxis learning paths and release installation guidance. Th
 
 Keep `release.json` tied to the verified public release. Record each public source feature in `source-features.json` with its verified release ref/date and guide. Future unreleased features use `availability: development` and a guide that states the prerequisites. The generated `source.json` and `llms.txt` retain this distinction. Do not advance release versions or qualification dates because a documentation build succeeds. At release time, verify the installer, native bundles, matching kit and public images before changing their availability or promoting the one-line installation path.
 
-The `v0.9.0` source tag freezes the implementation and its preparation-time
+The `v0.10.2` source tag freezes the implementation and its preparation-time
 documentation. Post-publication guides in this checkout reflect verified release
-availability. Implementation links remain pinned to `v0.9.0`; references to
+availability. Implementation links remain pinned to `v0.10.2`; references to
 updated repository guides use `develop`. Generated `public/source.json` records
 the documentation checkout commit separately from the product release revision.
 `documentationDirty` marks a local preview built with uncommitted docs changes.

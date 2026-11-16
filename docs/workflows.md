@@ -16,7 +16,7 @@ an immutable effective action. [Typed entrypoints and forks](workflow-entrypoint
 same-package branches that run while the parent continues local work.
 [External events and durable timers](workflow-events.md) add
 one-shot callback waits and persisted deadlines to the same checkpoint model.
-Matching 0.9.0 components add [provider operations](provider-operations.md),
+Matching 0.10.2 components include [provider operations](provider-operations.md),
 with explicit business identity, approval-bound intent and finite read-only
 recovery. Provider waits release the worker between independently leased probes.
 
@@ -24,7 +24,7 @@ recovery. Provider waits release the worker between independently leased probes.
 parent/child lifecycle coordination. Administrative redrive, automatic code
 upgrades, and large externalized checkpoint/result payloads are later capabilities.
 
-Development workers also offer [optional agent framework adapters](agent-integrations.md)
+Matching 0.10.2 workers also offer [optional agent framework adapters](agent-integrations.md)
 for PydanticAI, Google ADK and Claude Agent SDK. Invoke them directly from the
 controller. Their owned operations drain before invocation cleanup; model/tool
 callbacks cannot stage workflow work or nested adapters. Applications may instead

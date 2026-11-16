@@ -194,7 +194,7 @@ its timing is diagnostic, not a production capacity guarantee.
 
 ## Operator audit
 
-Matching 0.9.0 schemas add a fourth bounded maintenance lane for expired
+Matching 0.10.2 schemas include a fourth bounded maintenance lane for expired
 sensitive-response observations. The selected retention interval has the same
 90-day minimum. Preview reports `audit_observation_candidates`; applying removes
 at most the configured batch size in each observation transaction. Approval
@@ -238,21 +238,25 @@ late confirmation from the original worker.
 Retain capacity records for late worker quiescence and audited operator decisions;
 include their growth in retention planning. See [task admission](resource-admission.md#standalone-task-admission).
 
-## Execution progress cursors (development source)
+<span id="execution-progress-cursors-development-source"></span>
+
+## Execution progress cursors
 
 The [progress endpoint](execution-progress.md) reuses existing task/workflow
 history and its execution-wide retention. Cursors do not extend retention.
 There is no independent cursor TTL or partially pruned retained history. A
 retired target returns `NotFound`, not an empty page or a replacement execution.
 
-## Execution files (development source)
+<span id="execution-files-development-source"></span>
+
+## Execution files
 
 Execution artifacts follow canonical-root retention. A removed child can leave
 readable artifacts while its root remains retained. Root retirement hides them
 from new reads; an already authorized response may finish. Metadata and durable
 bytes are distinct: execution-row deletion never substitutes for physical cleanup.
 
-With matching development components, pass `--artifact-config FILE` to
+With matching 0.10.2 components, pass `--artifact-config FILE` to
 `ledgence orchestrator retain --apply` to process bounded artifact maintenance.
 Preview does not mutate artifact storage. The command reports pending/uncertain
 cleanup; it is not an automatic background deletion service. Its stable, separately

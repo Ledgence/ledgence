@@ -13,7 +13,7 @@ coordinates when to continue. Our workflow has two entrypoints: **start** and
 
 ## Before you start
 
-Complete [Run your first task](/tutorials/first-task). Leave the local **0.9.0**
+Complete [Run your first task](/tutorials/first-task). Leave the local **0.10.2**
 stack running and `hello-ledgence@0.1.0` published. Keep your editor open; you
 will create a second project beside the first one.
 
@@ -241,4 +241,4 @@ After that, [Checkpoints and recovery](/concepts/checkpoints-and-recovery)
 explains persistence and [Run tasks in parallel](/how-to/parallel-tasks) extends
 the same pattern to several children.
 
-**Example files:** [Hello Ledgence](https://github.com/Ledgence/ledgence/tree/develop/examples/hello-ledgence).
+**Example files:** [Hello Ledgence](https://github.com/Ledgence/ledgence/tree/02ca102a5ab9dc838eef32b85ccd058ec6b16d21/examples/hello-ledgence).

@@ -6,7 +6,7 @@ tableOfContents: false
 
 <p class="ld-home-intro">Run Python programs on workers, combine them into workflows, and see each execution in your browser. Start with a greeting; no AI account or API key is needed.</p>
 
-<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.9.0</span> Versions and downloads <span aria-hidden="true">→</span></a>
+<a class="ld-release-link" href="/reference/releases"><span>Ledgence 0.10.2</span> Versions and downloads <span aria-hidden="true">→</span></a>
 
 <div class="ld-start-panel">
   <div>
@@ -57,16 +57,19 @@ and send requests; installing those packages alone does not start Ledgence.
 | Add independent workflow branches | [Local work and distributed branches](/how-to/fork-workflow-branches) |
 | Wait for a person or another system | [Action approvals](/how-to/require-approval) and [external events](/how-to/wait-for-event) |
 | Build an agent that can recover completed calls | [Model and tool recovery](/how-to/recover-agent-calls) |
+| Reopen a task or workflow’s progress | [Execution progress](/how-to/follow-execution-progress) |
+| Pass a file between execution steps | [Execution files](/how-to/share-execution-files) |
+| Use an application-owned agent framework | [Optional framework adapters](/how-to/agent-frameworks) |
 | Connect an MCP client | [MCP setup](/how-to/connect-mcp) |
 | Run a complete agent example | [Code review with Codex](/tutorials/codex-change-review) |
 
 Use [Manage your local stack](/how-to/run-local-distribution) for logs and
-restarts, and [Upgrade to 0.9.0](/how-to/upgrade-to-0-9) for an existing
+restarts, and [Upgrade to 0.10.2](/how-to/upgrade-to-0-10) for an existing
 installation. Detailed contracts live in [Reference](/reference/capabilities);
 [Concepts](/concepts/execution-model) explains how the pieces work together.
 
-Development previews include [execution progress](/how-to/follow-execution-progress)
-and [file sharing between steps](/how-to/share-execution-files); both need matching
-development components and are not available in the published 0.9.0 packages.
+Follow [execution progress](/how-to/follow-execution-progress),
+[share files between steps](/how-to/share-execution-files), or use an optional
+[agent-framework adapter](/how-to/agent-frameworks) with matching 0.10.2 components.
 
-<p class="ld-home-status">These guides target the published Ledgence 0.9.0 release. Ledgence is open source and self-hosted. Run programs you trust; worker processes are not a sandbox for hostile code.</p>
+<p class="ld-home-status">These guides target the published Ledgence 0.10.2 release. Ledgence is open source and self-hosted. Run programs you trust; worker processes are not a sandbox for hostile code.</p>

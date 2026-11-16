@@ -1,6 +1,6 @@
 # Send a report between workers
 
-**Development source for the next release; not included in 0.9.0.** An agent can
+**Available in Ledgence 0.10.2.** An agent can
 create a report, patch or other file that the next task needs. Sending a local
 path fails when the next task runs on another host; embedding the entire file in
 workflow JSON adds unnecessary payload size. This example passes a small durable
@@ -46,11 +46,13 @@ storage. Apply the explicit database migrations first and supply an
 
 The paths resolve relative to that configuration file; the adapter creates the
 directories. The filesystem profile is qualified for one orchestrator on a
-persistent local volume, with concurrent retention maintenance. Use the S3
-adapter for the separately qualified shared-storage deployment profile. Retain
-both the PostgreSQL catalog and the execution objects across restarts.
+persistent local volume, with concurrent retention maintenance. The optional
+[S3 adapter](../../docs/execution-artifacts.md#configure-storage) is qualified
+against owned local RustFS; this does not establish AWS or arbitrary S3-service
+compatibility. Retain the PostgreSQL catalog and complete execution store, including
+its hidden identity marker, across restarts.
 
-With the development `ledgence-client` installed, save this as `submit.py` and
+With `ledgence-client==0.10.2` installed, save this as `submit.py` and
 run it from your environment:
 
 ```python

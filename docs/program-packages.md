@@ -98,7 +98,7 @@ The cache has one exclusive owner, a retained lock, and pins that prevent evicti
 
 The legacy adapter defaults and published 0.9.0 limits are 64 MiB compressed,
 256 MiB expanded, 64 MiB per file, 4,096 entries, a 64 KiB manifest, a 16 KiB
-descriptor, and a 1 GiB cache content quota. Development executables explicitly
+descriptor, and a 1 GiB cache content quota. Ledgence 0.10.2 executables explicitly
 select the 8,192-entry profile for building, publication, catalog verification,
 worker stores and caches. Entries include explicit directories and the manifest;
 this is not an inode bound because extraction can create implicit parent

@@ -3,9 +3,9 @@ title: Run an agent framework with accepted-result replay
 description: Choose the optional PydanticAI, Google ADK or Claude Agent SDK profile and understand its recovery boundary.
 ---
 
-**Development source for the next release; not available in 0.9.0.** Use matching
-workers and the worker helper from the same development checkout. The published
-local kit and Python helper do not contain these adapters.
+**Available in Ledgence 0.10.2.** Use matching workers and the worker helper.
+The helper includes the optional adapter code; your application supplies its
+chosen SDKs, models and credentials.
 
 Your application chooses its agent framework, models and credentials. Ledgence's
 Rust components and standard-library worker helper do not require a framework or
@@ -28,13 +28,13 @@ automatic native approval bridging. Claude's whole-run boundary can repeat all
 inner work if it was not accepted; it does not checkpoint each native tool call.
 
 Start from the same-scope
-[framework examples](https://github.com/Ledgence/ledgence/tree/develop/examples/framework-integrations):
+[framework examples](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/framework-integrations):
 
 | Example | Entry point | Dependency selection |
 | --- | --- | --- |
-| PydanticAI | [pydantic_program.py](https://github.com/Ledgence/ledgence/blob/develop/examples/framework-integrations/pydantic_program.py) | `requirements-pydantic.txt` |
-| Google ADK | [google_adk_program.py](https://github.com/Ledgence/ledgence/blob/develop/examples/framework-integrations/google_adk_program.py) | `requirements-adk.txt` |
-| Claude Agent SDK | [claude_program.py](https://github.com/Ledgence/ledgence/blob/develop/examples/framework-integrations/claude_program.py) | `requirements-claude.txt` |
+| PydanticAI | [pydantic_program.py](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/framework-integrations/pydantic_program.py) | `requirements-pydantic.txt` |
+| Google ADK | [google_adk_program.py](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/framework-integrations/google_adk_program.py) | `requirements-adk.txt` |
+| Claude Agent SDK | [claude_program.py](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/framework-integrations/claude_program.py) | `requirements-claude.txt` |
 
 The examples use deterministic offline models/transports with actual SDKs.
 Follow their README for installation, preparation and checks. They do not make
@@ -42,8 +42,8 @@ provider calls or download a CLI. A source-only Claude SDK/transport pass proves
 the Python SDK boundary; it does not qualify a live CLI/provider or external
 process termination. Any external CLI is supplied separately by the application.
 
-Development builds support an explicitly negotiated 8,192-entry program package
-profile. Published 0.9.0 workers allow 4,096 entries. Upgrade all eligible workers
+Ledgence 0.10.2 supports an explicitly negotiated 8,192-entry program package
+profile. Older 0.9.0 workers allow 4,096 entries. Upgrade all eligible workers
 before publishing a larger package; directory entries and the manifest count,
 and existing byte limits still apply.
 [Build and publish programs](/how-to/build-and-publish-programs).
@@ -213,5 +213,5 @@ not a restorable checkpoint; `SESSION_RESUME` is absent.
 Use [approvals](/how-to/require-approval) and
 [provider recovery](/how-to/recover-provider-operations) in the controller for
 reviewed external writes. The examples share that composition across frameworks.
-See the [complete adapter contract](https://github.com/Ledgence/ledgence/blob/develop/docs/agent-integrations.md)
+See the [complete adapter contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/agent-integrations.md)
 for exact API fields, error classes, limits, schema rules and credential separation.

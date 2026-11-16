@@ -3,7 +3,7 @@ title: Recover an asynchronous provider operation
 description: Approve a frozen provider request, dispatch once and release the worker between bounded status checks.
 ---
 
-Available in Ledgence 0.9.0 with matching components, credentials and an explicit
+Available in Ledgence 0.10.2 with matching components, credentials and an explicit
 provider policy.
 
 An export service might accept a request immediately and produce its file minutes
@@ -17,7 +17,7 @@ The provider-recovery example creates a real CSV file through a local HTTP
 service. It includes a workflow, approval, two single-slot workers and a separate
 queue for status checks. Its provider records requests independently so the
 checks can distinguish repeated network requests from repeated effects.
-[Provider-recovery example](https://github.com/Ledgence/ledgence/tree/develop/examples/provider-recovery).
+[Provider-recovery example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/provider-recovery).
 
 Use the example's `program.py` as the starting point in your editor. Keep the
 adapter and its workflow in the same prepared package. The worker retrieves that
@@ -185,13 +185,13 @@ new dispatch grants, including business keys absent from the restored snapshot,
 while allowing retained read-only recovery. Keep it enabled until the operator
 has reconciled external operations with restored state. Ledgence requires this
 explicit restore procedure to protect that boundary.
-[Provider operations contract](https://github.com/Ledgence/ledgence/blob/develop/docs/provider-operations.md).
+[Provider operations contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/provider-operations.md).
 
 <span id="development-limit-concurrent-dispatch-calls"></span>
 
 ## Limit concurrent dispatch calls
 
-Ledgence 0.9.0 can include a named resource in the provider binding
+Ledgence 0.10.2 can include a named resource in the provider binding
 before approval. It then parks for shared capacity and consumes both permissions
 atomically. A completed call may free capacity while the asynchronous business
 result remains pending. Recovery probes remain outside that limit.

@@ -12,15 +12,14 @@ The console query migration adds compact queue and callable columns and creating
 
 The new API serializes revision and sequence values as decimal strings. Program versions remain opaque exact strings. Unknown timestamps and unrecorded process identity are null rather than estimates. Claimed time and worker elapsed time are labeled separately; neither queue age nor an active scheduling state proves that a process is currently executing.
 
-**Development source:** Console contract **16** includes bounded live execution history
-and execution-file inspection and download.
-It requires matching server and assets from the development checkout; published
-0.9.0 continues to use contract 14. See [execution progress](execution-progress.md)
+Ledgence 0.10.2 uses Console contract **16**, including bounded live execution
+history and execution-file inspection and download. Use matching server and
+assets. The historical 0.9.0 release retains contract 14. See [execution progress](execution-progress.md)
 and [execution files](execution-artifacts.md).
 
 ## Unified discovery and execution explorer
 
-Ledgence 0.9.0 uses Console contract version 14, with typed native effect/provider
+Ledgence 0.10.2 uses Console contract version 16, with typed native effect/provider
 waits and these discovery and inspection endpoints. The historical 0.7.0 release
 uses version 5.
 
@@ -314,7 +313,7 @@ can move a request out of a filtered view between page reads. [Inbox contract](w
 
 ## Inspect one local step
 
-Ledgence 0.9.0 accepts `GET /v1/console/workflows/local-steps/inspect` with
+Ledgence 0.10.2 accepts `GET /v1/console/workflows/local-steps/inspect` with
 `workflow_id`, `activation_id` and `step_key`. The server obtains the scope from
 the instance. A successful response contains the local-step summary in `step`,
 a `kind` of `local`, `model` or `tool`, a nullable `version`, and `arguments`
@@ -349,7 +348,7 @@ C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
 ticket. The wait preserves the approval's original activation even when capacity
 is granted to a later activation. Historical persisted C8 waits are projected as
-ordinary operations; use matching C14 server and browser assets.
+ordinary operations; use matching C16 server and browser assets.
 
 Open an admission wait and choose **Inspect admission record** to load its
 approved arguments and linked dispatch/report evidence through the audited
@@ -363,7 +362,7 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Deploy matching C14 server and assets together.
+Deploy matching C16 server and assets together.
 
 <span id="standalone-task-admission-development-c14"></span>
 
@@ -382,7 +381,7 @@ certify completion of external work.
 
 ## Cluster-wide queue concurrency
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C16 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 <span id="resource-offers-development-c14"></span>
 

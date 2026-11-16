@@ -3,7 +3,7 @@ title: Connect an MCP client
 description: Discover programs, submit work, and inspect durable executions through the optional Ledgence MCP server.
 ---
 
-Ledgence 0.9.0 includes the optional MCP server in its native bundles and default
+Ledgence 0.10.2 includes the optional MCP server in its native bundles and default
 CLI build. The server connects to your existing Ledgence HTTP API; it does not
 start infrastructure or require an AI framework.
 
@@ -77,16 +77,16 @@ human approval interface or CLI; the MCP server cannot approve its own work.
 Tool outputs are bounded to 2 MiB without truncation; larger results remain
 available through the HTTP API. This version provides stdio tools, not Streamable
 HTTP, model sampling, prompts/resources, package uploads, or MCP Tasks-extension
-state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/mcp.md)
+state. See the [full tool contract and recovery guide](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/mcp.md)
 for limits, error semantics, verification and architecture.
 
-Ledgence 0.9.0 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
+Ledgence 0.10.2 exposes `ledgence_approval_inbox` in read-only mode. Optionally set `due_before` to UTC epoch milliseconds to select earlier deadlines. Discover requests in the configured scope, then pass the workflow ID and key to `ledgence_approval_inspect`. [Approval inbox](/how-to/require-approval#find-pending-requests-across-workflows).
 
 <span id="instance-access-in-development"></span>
 
 ## Instance access
 
-Use scoped credentials with matching 0.9.0 components. The
+Use scoped credentials with matching 0.10.2 components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
 
@@ -102,7 +102,7 @@ Matching builds add `ledgence_audit_query` as a read-only tool. It uses the fixe
 
 ## Retained effect tools
 
-Ledgence 0.9.0 includes both effect-read tools. Both are available with `--read-only`; the startup scope and credential
+Ledgence 0.10.2 includes both effect-read tools. Both are available with `--read-only`; the startup scope and credential
 remain fixed. Tool arguments cannot override scope, identity or credentials.
 
 | Tool | Arguments and access |
@@ -120,7 +120,7 @@ The detail separates immutable approval binding, journal state, claim provenance
 and reported observations. Authenticated worker attribution does not verify the
 external provider's outcome. Legacy sources remain unattributed. These tools
 cannot approve, resolve or dispatch an action. See the [effect evidence
-contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md) for retention and evidence interpretation.
+contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/effect-evidence.md) for retention and evidence interpretation.
 
 
 <span id="operator-effect-resolution-in-development"></span>
@@ -135,7 +135,7 @@ ledgence mcp serve --server http://127.0.0.1:8080 \
   --allow-effect-resolution
 ```
 
-`--read-only` and `--allow-effect-resolution` cannot be combined. In 0.9.0, with audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36.
+`--read-only` and `--allow-effect-resolution` cannot be combined. In 0.10.2, with audit configured, the native catalog exposes 33 tools by default and 28 in read-only mode. Effect resolution alone exposes 34 tools, resource control alone exposes 38, and enabling both exposes 39.
 The added `ledgence_effect_resolve` also requires the credential's dedicated
 `effect_resolve` capability. Fixed scope and credentials cannot be supplied or
 overridden through tool arguments. Worker credentials cannot resolve effects.
@@ -172,7 +172,7 @@ empty response means absence; denied or unavailable reads remain errors.
 
 ## Inspect provider recovery
 
-Matching 0.9.0 MCP and API builds reuse `ledgence_effect_inbox` and
+Matching 0.10.2 MCP and API builds reuse `ledgence_effect_inbox` and
 `ledgence_effect_inspect`. Set `provider_filter` to `needs_review` to find
 operations needing review; leave ordinary `filter` as `all` or omit it. Other
 provider filters are `all`, `pending`, `succeeded`, `failed`, `cancelled` and
@@ -188,13 +188,13 @@ and explicit effect-resolution opt-in are unchanged. [Recover provider operation
 
 ## Resource tools
 
-Matching 0.9.0 builds add `ledgence_resource_list`, `ledgence_resource_inspect`
+Matching 0.10.2 builds provide `ledgence_resource_list`, `ledgence_resource_inspect`
 and audited `ledgence_admission_inspect`. Explicit `--allow-resource-control`
 adds policy and release tools, subject to `resource_control`. It conflicts with
 `--read-only`. An administrative release acknowledges uncertain usage; it never
 asserts remote success. [Admission guide](/how-to/control-resource-capacity).
 
-Matching 0.9.0 builds add `ledgence_task_admission_inspect` for a task ID
+Matching 0.10.2 builds provide `ledgence_task_admission_inspect` for a task ID
 and generation. `ledgence_task_submit` accepts one optional named resource.
 `ledgence_task_admission_release` requires the explicit resource-control opt-in,
 source, inspected revision, request ID and operator reason. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
@@ -207,21 +207,25 @@ Call `ledgence_resource_sources` with a resource `name` to inspect charged task,
 
 Use `ledgence_resource_decisions` with a resource `name` to inspect each committed weighted offer. Pass `next` back as `before` for older decisions. The tool requires `metadata_read`. Configure queue groups through `ledgence_resource_put` with the resource-control opt-in. [Share capacity across queue groups](/how-to/share-resource-offers).
 
-In Ledgence 0.9.0, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.
+In Ledgence 0.10.2, `ledgence_budget_inspect` and `ledgence_budget_entries` read the budget shared by an execution tree. Give either tool a `subject` such as `{"kind":"workflow","workflow_id":"wf_123"}`. The server binds the session scope. For entries, pass the returned `next` as `before` for older records. Both tools require `metadata_read` and are available in read-only mode. Root workflow and standalone task submissions accept an optional `budget`.
 
-## Execution progress in development
+<span id="execution-progress-in-development"></span>
+
+## Execution progress
 
 The next source version adds `ledgence_execution_progress` to both normal and
 read-only discovery. Use it to read one bounded task or workflow lifecycle page
 and resume with its returned cursor. It does not hold a tool call open or mutate
-the execution. This tool is not included in the published 0.9.0 catalog above.
+the execution. It is included in the 0.10.2 catalog above.
 [Follow execution progress](/how-to/follow-execution-progress).
 
-## Execution file metadata in development
+<span id="execution-file-metadata-in-development"></span>
+
+## Execution file metadata
 
 `ledgence_artifact_inspect` and `ledgence_artifact_list` expose accepted retained
 file metadata with the configured scope and `metadata_read`, including read-only
 mode. They cannot upload, download, replace or delete files. These tools require
-matching development components and an execution store, beyond published 0.9.0.
+matching 0.10.2 components and a configured execution store.
 Use the CLI or Python client for byte transfer and recovery.
 [Share execution files](/how-to/share-execution-files).

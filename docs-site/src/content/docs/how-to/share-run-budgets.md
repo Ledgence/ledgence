@@ -3,13 +3,13 @@ title: Give an investigation a shared call allowance
 description: Bound calls and delegations across one workflow and its descendants.
 ---
 
-**Available in Ledgence 0.9.0.** Use matching 0.9.0 components with resource admission enabled.
+**Available in Ledgence 0.10.2.** Use matching 0.10.2 components with resource admission enabled.
 
 A support agent has two tickets to analyze, but you only want to pay for one classifier call. Setting a limit on each child would give them two calls in total. Instead, declare the allowance once when you submit the parent. Both child workflows then use the same balance.
 
 ## Submit the parent
 
-[Enable resource admission](/how-to/control-resource-capacity) and publish the two programs from the [shared run budget example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget). Open the example's `submit.py` in your editor. This is the part that sets the limits:
+[Enable resource admission](/how-to/control-resource-capacity) and publish the two programs from the [shared run budget example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/shared-run-budget). Open the example's `submit.py` in your editor. This is the part that sets the limits:
 
 ```python
 from ledgence.client import RunBudgetPolicy

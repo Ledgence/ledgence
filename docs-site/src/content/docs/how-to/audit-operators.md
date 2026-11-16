@@ -3,7 +3,7 @@ title: Inspect operator audit
 description: Inspect verified approval and effect-assessment acceptance and durable sensitive-response observations.
 ---
 
-Available in Ledgence 0.9.0 with credentials enabled. Existing operator-trusted
+Available in Ledgence 0.10.2 with credentials enabled. Existing operator-trusted
 installations keep their deployment access boundary.
 
 Native credential mode records verified approval and effect-assessment acceptance
@@ -63,7 +63,7 @@ instance scope, including other operators' identities and resource references.
 The feed is available with configured credential authority. Operator-trusted
 mode has no verified actor to authorize this feed.
 
-Read a bounded page with the 0.9.0 CLI.
+Read a bounded page with the 0.10.2 CLI.
 
 ```sh
 ./target/debug/ledgence audit list \
@@ -154,7 +154,7 @@ The scoped `ledgence orchestrator retain` command includes a bounded lane for
 response observations older than the selected retention interval, at least
 90 days. Preview includes `audit_observation_candidates`. Each deletion page
 respects the existing batch size and concurrent maintenance uses row locks.
-[Retention procedure](https://github.com/Ledgence/ledgence/blob/develop/docs/retention.md).
+[Retention procedure](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/retention.md).
 
 Approval and effect-assessment acceptance events survive execution cleanup and
 have no automatic expiry in this increment. Plan storage for accumulated
@@ -174,7 +174,7 @@ reported callback results have their own evidence provenance.
 
 ## Resource admission audit
 
-Matching 0.9.0 builds add `resource_policy_accepted` and
+Matching 0.10.2 builds include `resource_policy_accepted` and
 `admission_released`. Policy events identify
 the resource, request, revision and policy digest. Release events identify the
 original admission occurrence, source, request and revision. Both retain and

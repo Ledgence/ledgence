@@ -1,8 +1,8 @@
 # Optional agent framework adapters
 
-**Development source beyond published Ledgence 0.9.0.** Use matching development
-workers and the worker helper from the same checkout. Installing the published
-0.9.0 helper or updating only a program does not enable these adapters.
+**Available in Ledgence 0.10.2.** Use matching workers and the worker helper.
+The helper includes the adapters; your application supplies the optional SDKs
+and provider configuration. Updating only a program does not upgrade its worker.
 
 Ledgence offers separate optional adapters for PydanticAI, Google ADK and Claude
 Agent SDK. Choose the framework in your application. The Rust platform and
@@ -41,7 +41,7 @@ explicit offline transport; they do not qualify live CLI/provider execution or
 prove that an external effect has stopped. The proprietary external CLI is not
 bundled or required by Ledgence.
 
-The development [program package profile](program-publication.md) permits up to
+The explicitly negotiated [program package profile](program-publication.md) permits up to
 8,192 ZIP entries, counting directories and the manifest. Existing 0.9.0 workers
 use 4,096. Upgrade every eligible worker and use the matching CLI/server before
 publishing larger dependency packages. Byte limits still apply; preparing an

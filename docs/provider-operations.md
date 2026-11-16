@@ -1,6 +1,6 @@
 # Recoverable provider operations
 
-Available in Ledgence 0.9.0. Use matching server, worker, helper and Console
+Available in Ledgence 0.10.2. Use matching server, worker, helper and Console
 components, apply the database migrations and enable the policy explicitly.
 
 A provider operation separates permission to issue a mutation, the provider's
@@ -211,7 +211,7 @@ typed reports, finalization and recovery-stop records alongside operator
 assessments. Detail inspection remains bounded and audited before payload bytes
 are returned. Claims and reports preserve worker provenance separately from
 verified operator audit. Historical lease authority is never exposed by these
-operator projections. Console contract 14 displays provider waits and probe task
+operator projections. Console contract 16 displays provider waits and probe task
 roles without inventing a workflow dependency from timestamps.
 
 The generic worker API exposes five routes.

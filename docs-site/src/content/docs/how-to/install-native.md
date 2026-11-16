@@ -25,7 +25,7 @@ Want to manage Compose yourself or compile the CLI? Return to
   distributions need compatible host libraries as well; the glibc minimum
   alone does not establish support.
 - Keep local port **8080** available. If you already have a Ledgence installation
-  with saved data, use its [upgrade guide](/how-to/upgrade-to-0-9) first.
+  with saved data, use its [upgrade guide](/how-to/upgrade-to-0-10) first.
 
 Check that Docker is available from your terminal:
 
@@ -57,7 +57,7 @@ ledgence --version
 The `.` command loads the installer's shell setup. `$HOME` is your home directory.
 This is needed once in your current terminal because an installer process cannot
 change its parent shell. New Bash/Zsh terminals load the setup automatically.
-These guides describe **0.9.0**; the [version-pinned command below](#shell-setup-and-installer-options)
+These guides describe **0.10.2**; the [version-pinned command below](#shell-setup-and-installer-options)
 lets you select that exact release.
 
 The installer uses your own `~/.local` directory without `sudo`. It verifies the
@@ -104,10 +104,10 @@ ports, retained configuration and data.
 
 ## Shell setup and installer options
 
-To select **0.9.0** explicitly instead of the latest stable release:
+To select **0.10.2** explicitly instead of the latest stable release:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.9.0/install.sh | sh -s -- --version 0.9.0
+curl --proto '=https' --tlsv1.2 -sSfL https://github.com/Ledgence/ledgence/releases/download/v0.10.2/install.sh | sh -s -- --version 0.10.2
 ```
 
 The installer configures Bash, Zsh and supported POSIX-shell profiles without
@@ -119,7 +119,7 @@ Use `--no-modify-path` if you want to manage your shell yourself. A custom
 `--prefix /absolute/path` changes the installation directory; the installer
 prints the corresponding command to activate it. Details of shell files,
 custom prefixes and the retained bundle layout are in the
-[installation reference](https://github.com/Ledgence/ledgence/blob/develop/docs/installation.md#shell-setup).
+[installation reference](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/installation.md#shell-setup).
 
 ## Troubleshoot installation
 
@@ -146,5 +146,5 @@ For Python application dependencies, use [Develop Python programs](/how-to/devel
 or the [Python client reference](/reference/python-client). The first task
 tutorial covers the dependencies needed for its own project.
 
-**Source:** [0.9.0 release](https://github.com/Ledgence/ledgence/releases/tag/v0.9.0) ·
-[Installer](https://github.com/Ledgence/ledgence/blob/v0.9.0/install.sh)
+**Source:** [0.10.2 release](https://github.com/Ledgence/ledgence/releases/tag/v0.10.2) ·
+[Installer](https://github.com/Ledgence/ledgence/blob/v0.10.2/install.sh)

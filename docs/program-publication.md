@@ -1,14 +1,14 @@
 # Build and publish Python programs
 
-Available in **Ledgence 0.9.0** with matching CLI and orchestrator components.
+Available in **Ledgence 0.10.2** with matching CLI and orchestrator components.
 The server writer must be enabled explicitly. Earlier saved local kits keep
 their original image and configuration; a CLI update does not enable uploads
 in those stacks. Existing filesystem publication and separate registration
 remain available.
 
-**Development:** builds and updated workers support an explicitly negotiated
-8,192-entry package profile. This extension is not available in the published
-0.9.0 binaries. Upgrade every eligible worker before dispatching larger packages;
+**Ledgence 0.10.2** supports an explicitly negotiated 8,192-entry package profile.
+Older 0.9.0 binaries retain the 4,096-entry limit. Upgrade every eligible worker
+before dispatching larger packages;
 existing packages remain supported. Other package byte limits are unchanged.
 
 A program moves through three distinct operations:
@@ -39,7 +39,7 @@ already prepared package.
 
 ## Start from a new source project
 
-The 0.9.0 CLI includes `ledgence program new invoice-issuer` and
+The 0.10.2 CLI includes `ledgence program new invoice-issuer` and
 `ledgence program new invoice-flow --kind workflow`. These commands create
 editable Python code, unit tests, development dependency metadata and a build
 configuration in a new directory. The development dependencies include
@@ -53,7 +53,7 @@ prerequisites, generated files and explicit target flags.
 Before `program build`, replace the generated target placeholders with the
 worker's platform, Python version and digest-pinned image, or provide all three
 when creating the project. Keep production dependencies in `requirements.txt`
-with the exact pins and hashes required below; the 0.9.0 helper stays in
+with the exact pins and hashes required below; the 0.10.2 helper stays in
 `pyproject.toml`. Scaffolding does not infer a deployment target.
 
 ## Explicit build configuration
@@ -200,11 +200,11 @@ read-only store remains supported, but cannot enable this filesystem writer.
 The server and worker do not need Docker or a provider account to accept and
 execute an already prepared package.
 
-The 0.9.0 local Compose templates give the orchestrator write access to
+The 0.10.2 local Compose templates give the orchestrator write access to
 `/programs` and leave the worker's mount read-only. Both see the same volume.
 **Existing saved kits are not rewritten or upgraded.** Installing a newer CLI
 cannot enable uploads in an older stack. Use a separate state directory and a
-matching 0.9.0 kit for evaluation, or plan an explicit
+matching 0.10.2 kit for evaluation, or plan an explicit
 operator-managed upgrade with backups. Do not edit a copied kit to bypass its
 checksum checks, silently replace its image, or delete persistent volumes.
 
@@ -305,13 +305,13 @@ server's absent route is reported by the CLI as unsupported publication, with
 | Compressed ZIP | 64 MiB |
 | Expanded bytes | 256 MiB |
 | Single file | 64 MiB |
-| Entries, including directories and manifest | 4,096 legacy; 8,192 with the development profile |
+| Entries, including directories and manifest | 4,096 legacy; 8,192 with the explicitly negotiated profile |
 | Manifest | 64 KiB |
 | Descriptor | 16 KiB |
 | Concurrent uploads per service instance | 2 |
 | Transfer plus verification/persistence budget | 120 seconds |
 
-The development client requests `X-Ledgence-Program-Package-Profile:
+The 0.10.2 client requests `X-Ledgence-Program-Package-Profile:
 entries-8192-v1` on capabilities discovery. A matching response header explicitly
 selects that profile; an absent response header selects legacy limits. The same
 selected header is sent on PUT. Capabilities JSON remains unchanged. Legacy

@@ -7,7 +7,7 @@ Publishing your first program? Follow [Hello, Ledgence!](/tutorials/first-task)
 for a complete editor-to-result lesson. This guide explains custom inputs,
 dependencies, targets, and interrupted uploads after you know that basic flow.
 
-**Available in Ledgence 0.9.0.** Use matching CLI and orchestrator components
+**Available in Ledgence 0.10.2.** Use matching CLI and orchestrator components
 and explicitly enable the server's publication writer. Earlier saved local kits
 retain their image and configuration; a new CLI does not upgrade those services.
 [Filesystem publication and separate registration](/how-to/register-agent)
@@ -22,17 +22,17 @@ start with [Develop Python programs](/how-to/develop-python-programs).
 
 You need:
 
-- The 0.9.0 `ledgence` CLI and local Docker running Linux containers.
+- The 0.10.2 `ledgence` CLI and local Docker running Linux containers.
 - The worker's explicit platform, exact CPython major/minor and digest-pinned
   runtime image. A Mac's architecture or a server URL cannot select these for you.
-- A matching 0.9.0 server with `--allow-program-publication`, an instance configuration
+- A matching 0.10.2 server with `--allow-program-publication`, an instance configuration
   and a writable filesystem program store. An HTTPS read-only store cannot
   enable this writer.
 
-The 0.9.0 Compose templates enable the server's writer and leave the
+The 0.10.2 Compose templates enable the server's writer and leave the
 worker's program mount read-only. An already saved kit keeps its original image,
 settings and data; installing a newer CLI does not upgrade it. Use a separate
-state directory with a matching 0.9.0 kit for evaluation. Do not edit
+state directory with a matching 0.10.2 kit for evaluation. Do not edit
 copied kit files to bypass their checksum checks. See
 [local distribution operations](/how-to/run-local-distribution).
 
@@ -44,7 +44,7 @@ publisher authentication.
 
 ## Create or choose application source
 
-With the 0.9.0 CLI, `ledgence program new invoice-issuer` creates a
+With the 0.10.2 CLI, `ledgence program new invoice-issuer` creates a
 task project; add `--kind workflow` for a workflow. It generates code, unit tests,
 development dependencies and `ledgence.toml` without installing or executing
 anything. Follow
@@ -58,7 +58,7 @@ The build and publication steps below also work with an existing project.
 
 ## Describe the application
 
-The [program publication example](https://github.com/Ledgence/ledgence/blob/develop/examples/program-publication/README.md)
+The [program publication example](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/program-publication/README.md)
 uses an HTML report workflow with a small native dependency. Copy its project
 and edit its runtime image and target to match your worker. Its example image
 placeholder must be replaced with the worker's actual digest. For the local
@@ -181,7 +181,7 @@ separate task or workflow submission. A registered program can target another
 platform; a worker still needs to satisfy its runtime requirements.
 
 For a complete workflow walkthrough, use the [program publication
-example](https://github.com/Ledgence/ledgence/blob/develop/examples/program-publication/README.md).
+example](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/program-publication/README.md).
 It builds a package with a native Python wheel, publishes and registers it, then
 submits a workflow with the Python client and waits for the result.
 
@@ -229,8 +229,9 @@ idempotent; different bytes return an immutable conflict.
 
 ## Limits and operating scope
 
-The default package limits are 64 MiB compressed, 256 MiB expanded, 64 MiB per
-file, 4,096 entries, a 64 KiB manifest and a 16 KiB descriptor. The service admits
+The legacy package limits are 64 MiB compressed, 256 MiB expanded, 64 MiB per
+file, 4,096 entries, a 64 KiB manifest and a 16 KiB descriptor. Ledgence 0.10.2
+can explicitly negotiate the 8,192-entry profile described below. The service admits
 two uploads at a time before reading their bodies, with a 120-second transfer
 and persistence budget. A timeout cannot release capacity while its admitted
 write is still running. JSON control operations keep their existing deadline.
@@ -239,16 +240,16 @@ write is still running. JSON control operations keep their existing deadline.
 registration are enabled, their limits and immutable mode. A server without this
 route is reported as incompatible; use `--store` or an explicit server upgrade.
 
-**In development:** updated components support a negotiated 8,192-entry profile,
+**Available in Ledgence 0.10.2:** matching components support a negotiated 8,192-entry profile,
 including directories and the manifest. All other package byte limits stay the
 same. Upgrade every worker that can receive the program before using a larger
 package; 0.9.0 workers reject it. Existing smaller packages remain compatible.
 The updated CLI checks the complete ZIP against the server's selected limits
 before uploading. A 0.9.0 server selects the legacy 4,096-entry profile, so a larger
 package fails before PUT. Resume retains and reinspects the original bytes; it
-does not prune dependencies. This extension is not in the published 0.9.0 release.
+does not prune dependencies. Older 0.9.0 components retain their original limits.
 
-The [full configuration, binary API, error and recovery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-publication.md)
+The [full configuration, binary API, error and recovery contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/program-publication.md)
 describes typed failures, descriptor binding, temporary files and adapter
 requirements. Docker belongs to the local builder; accepting a prepared ZIP and
 running it need no Docker installation or vendor account on the server itself.

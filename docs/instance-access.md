@@ -1,6 +1,6 @@
 # Instance access
 
-Available in Ledgence 0.9.0 with matching CLI, server, worker, Python client
+Available in Ledgence 0.10.2 with matching CLI, server, worker, Python client
 and Console components. Credentials remain opt-in. Existing operator-trusted
 installations keep their deployment access boundary.
 
@@ -53,7 +53,7 @@ The directory contains three files.
 - `access.json` holds the installation authority, credential verifiers,
   capabilities and expirations. Mount it on each orchestrator.
 - `operator.json` holds Alice's reusable credential and its intended server.
-  A newly initialized 0.9.0 bundle grants all operator capabilities,
+  A newly initialized 0.10.2 bundle grants all operator capabilities,
   including `effect_resolve`. Existing access files keep their explicit
   capabilities; upgrading does not add this permission to old credentials.
 - `worker.json` holds a separate credential for the trusted worker plane.
@@ -242,16 +242,18 @@ and sensitive-response audit. Approval `reviewer` remains caller supplied.
 Recorded acceptance identifies the verified actor separately. Read the operating and retention contract before
 enabling access on an existing deployment. [Operator audit](operator-audit.md).
 
-## Execution file permissions in development
+<span id="execution-file-permissions-in-development"></span>
 
-Matching development components beyond published 0.9.0 add `artifact_write` for
+## Execution file permissions
+
+Matching 0.10.2 components add `artifact_write` for
 external file preparation, upload status, upload, reconciliation and replacement.
 It does not grant metadata or content reads. `metadata_read` covers accepted
 manifest inspection/listing; `sensitive_read` covers explicit downloads with the
 applicable durable response audit. Workers use `worker_execute` and their actual
 current lease, with no storage credentials exposed to the program.
 
-New development `access init` operator credentials include `artifact_write`.
+New 0.10.2 `access init` operator credentials include `artifact_write`.
 Existing credential configurations retain their explicit capabilities on upgrade;
 add or rotate a credential deliberately if file publication is required. Console
 accepts the capability even though its file UI only inspects and downloads.

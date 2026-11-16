@@ -3,7 +3,7 @@ title: Share capacity across model and tool calls
 description: Park workflows while a resource is full, then run a registered operation and retain its result.
 ---
 
-**Available in Ledgence 0.9.0.** Use matching components, apply the migrations and deploy Console C14. On existing databases,
+**Available in Ledgence 0.10.2.** Use matching components, apply the migrations and deploy Console C16. On existing databases,
 rehearse the migration on a representative restore: rebuilding the task queue indexes
 can block writes.
 
@@ -14,7 +14,7 @@ process to execute other work.
 
 ## Try a real local example
 
-The [resource-admission example](https://github.com/Ledgence/ledgence/tree/develop/examples/resource-admission)
+The [resource-admission example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/resource-admission)
 contains two entrypoints and a registered classifier. Its local HTTP provider
 records calls independently. The complete check starts real processes and tests
 restart, lost responses, expired offers and result reuse without a model account.
@@ -150,10 +150,10 @@ admission = ProviderAdmissionRequirement(resource="export-dispatch")
 
 Pass `admission=admission` alongside the existing business, target and recovery
 fields in your adapter's `binding(...)` call. This creates a version-2 provider binding. Enable both provider recovery and admission
-on every API replica; all components must come from the same 0.9.0 release.
+on every API replica; all components must come from the same 0.10.2 release.
 The accepted approval freezes the resource, arguments, adapter and program together.
 
-The [approved export example](https://github.com/Ledgence/ledgence/tree/develop/examples/provider-admission)
+The [approved export example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/provider-admission)
 is a complete four-entrypoint workflow:
 
 1. Request approval of the export and its resource.
@@ -213,7 +213,7 @@ retirement. The retention interval for executions does not erase them, and
 releasing capacity does not delete the evidence. Plan storage for their continued
 growth.
 
-[Full contract, routes and failure semantics](https://github.com/Ledgence/ledgence/blob/develop/docs/resource-admission.md).
+[Full contract, routes and failure semantics](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/resource-admission.md).
 
 ## Apply the resource to a single task
 
@@ -231,7 +231,7 @@ task = await client.tasks.submit(
 )
 ```
 
-Use a matching 0.9.0 worker and already configured named resource. While
+Use a matching 0.10.2 worker and already configured named resource. While
 waiting for capacity the task stays queued without occupying a process. The worker
 prepares the program before requesting permission to invoke its handler. Put the
 work you want controlled **inside the handler**, not at module import time.

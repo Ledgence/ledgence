@@ -6,9 +6,11 @@ a registered program catalog, and worker process observations. The orchestrator
 serves the production assets at `/console/`; a deployed Console needs neither a
 Node.js process nor a hosted vendor service.
 
-## Live lifecycle history (development source)
+<span id="live-lifecycle-history-development-source"></span>
 
-The next release adds a live lifecycle feed to a task’s **Trace → Lifecycle** and
+## Live lifecycle history
+
+Ledgence 0.10.2 includes a live lifecycle feed to a task’s **Trace → Lifecycle** and
 a workflow’s **General → Lifecycle** section. It reads committed Ledgence history;
 it is not a model-token stream, application log, or replacement for the execution
 graph. Console contract 16 advertises this through `execution_progress`. Adapters
@@ -51,7 +53,7 @@ preserves the browser Origin. You may retain `http://127.0.0.1:8080` too when us
 the directly served Console in that mode. Credential mode requires exactly one
 selected origin. Prefer the built Console served by the orchestrator at the API's
 own origin; choose the Vite origin alone when testing through its development
-proxy. An unlisted Origin causes requests to be rejected. The 0.9.0 server contains no demo API
+proxy. An unlisted Origin causes requests to be rejected. The 0.10.2 server contains no demo API
 or mock data.
 
 <span id="instance-access-development"></span>
@@ -100,7 +102,7 @@ acceptance attribution is shown separately when the instance supports audit.
 
 Instances without credential configuration retain their explicit
 operator-trusted deployment mode and do not invent an authenticated actor.
-These access capabilities are available in Ledgence 0.9.0 packages.
+These access capabilities are available in Ledgence 0.10.2 packages.
 
 ## Brand assets
 
@@ -179,7 +181,9 @@ layout scaling; it does not claim browser-chrome zoom or physical-device coverag
 Running it without an explicit Console URL or the required native seed handoff
 fails; it never silently falls back to mocks or another run's evidence.
 
-## Execution artifacts (development source)
+<span id="execution-artifacts-development-source"></span>
+
+## Execution artifacts
 
 When the instance advertises `execution_artifacts`, task and workflow details
 include **General → Artifacts**. This view lists verified files shared by the
@@ -321,7 +325,7 @@ and full-screen changes, with a complete accessible work list for the loaded
 page. Routing is checked against card obstacles; extreme density or overlapping
 manual positions can still need Reorganize or Trace. Unit geometry checks cover
 the canonical four-branch workflow and bounded synthetic pages of 100 records.
-Ledgence 0.9.0 uses Console contract **14** for native admission waits,
+Ledgence 0.10.2 uses Console contract **16** for native admission waits,
 accepted operations and weighted resource offers; deploy matching server and assets together.
 Upgrade server and assets together when migrating from 0.8.0 (C7).
 Old Explorer cursors are invalidated by the coordinated backend upgrade.
@@ -337,7 +341,7 @@ missing reports never become fabricated process slots.
 ## Interface and dependencies
 
 On desktop, **Collapse sidebar** makes room for the content. Select the Ledgence
-mark to expand the sidebar again. In 0.9.0, choose **System**,
+mark to expand the sidebar again. In 0.10.2, choose **System**,
 **Light** or **Dark** from **Appearance** in the sidebar. On small screens, the
 same control appears beside the navigation links. **System** is the default
 and follows changes to the device appearance. The browser remembers the selected
@@ -351,7 +355,7 @@ full screen with Escape to exit, keeps selection and canvas state, and opens its
 inspector only when work is selected. Secondary evidence remains available in an
 expandable work list.
 
-In 0.9.0, the expanded sidebar shows the connected server version.
+In 0.10.2, the expanded sidebar shows the connected server version.
 Execution history groups its filters and results together. Names and states lead each
 row, with technical IDs beneath the names. State badges pair a label with a symbol.
 Program and worker entries group identity, version or capacity, and related actions.
@@ -369,7 +373,7 @@ material. Ledgence-owned Console code is MIT; third-party licenses remain their 
 
 ### Approval inbox
 
-Ledgence 0.9.0 includes **Approvals** in the main navigation. It lists the
+Ledgence 0.10.2 includes **Approvals** in the main navigation. It lists the
 instance's pending requests across workflows, earliest deadline first. Filter
 by status, exact program ID and **Due before (UTC)**. A deadline exactly at the
 chosen instant is excluded. Opening a request
@@ -415,7 +419,7 @@ view; late responses cannot repopulate it. Credential rotation for the same acto
 preserves a pending command only under the same instance and permissions and
 still requires a deliberate identical retry. Operator-trusted deployments do not
 invent verified identities. Verified attribution preserves the existing approval
-and decision representation. Ledgence 0.9.0 uses matching Console contract 14
+and decision representation. Ledgence 0.10.2 uses matching Console contract 16
 assets and server builds.
 
 ### Inspect a durable operation
@@ -432,7 +436,7 @@ was observed, the node has no durable result to inspect.
 C9 additionally identifies protected provider subjects in admission waits. The
 on-demand admission inspector separates capacity settlement from provider
 business completion and displays the original provider ticket. Provider grants
-are not rendered as successful local-operation nodes. Use matching C14 assets
+are not rendered as successful local-operation nodes. Use matching C16 assets
 and backend.
 
 C10 adds standalone task resource admission. Task details show the resource,

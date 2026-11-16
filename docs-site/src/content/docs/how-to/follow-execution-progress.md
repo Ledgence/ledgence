@@ -3,9 +3,8 @@ title: Reopen an execution's progress
 description: Follow committed task or workflow transitions and resume with a saved cursor.
 ---
 
-**Development source for the next release; not available in 0.9.0.** Use the
-server and Python client from the same development checkout. The released
-container stack does not yet expose this endpoint.
+**Available in Ledgence 0.10.2.** Use matching server and Python client versions.
+The 0.10.2 local stack includes this endpoint.
 
 When an investigation runs for several minutes, you can close its observer and
 return later. A saved cursor identifies the last page you processed. Reopening
@@ -13,11 +12,10 @@ it reads the remaining retained transitions without starting the work again.
 
 ## Follow from your editor
 
-With your development virtual environment active, install the client from the
-repository root:
+With your application virtual environment active, install the matching client:
 
 ```sh
-python -m pip install ./sdk/python-client
+python -m pip install "ledgence-client==0.10.2"
 ```
 
 Create `watch_execution.py` in your editor. Replace `TASK_ID` with a task you
@@ -93,7 +91,7 @@ Retained executions keep their complete history. After execution retirement,
 reads return `NotFound`; resetting a cursor cannot restore deleted evidence.
 ## Follow in Console
 
-In matching development Console, open a task and choose **Trace → Lifecycle**,
+In matching Console, open a task and choose **Trace → Lifecycle**,
 or open a workflow and choose **General → Lifecycle**.
 The live timeline shows committed lifecycle events. It keeps a bounded window,
 resumes its cursor after transient connection failures and offers earlier history
@@ -102,5 +100,5 @@ progress or credentials in browser storage. Leaving the view stops observation.
 The graph and trace views continue to show their existing execution relationships.
 A server without the progress capability keeps the original paginated history.
 
-[Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/execution-progress)
-· [API, cursor and retention contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-progress.md)
+[Runnable example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/execution-progress)
+· [API, cursor and retention contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/execution-progress.md)

@@ -3,7 +3,7 @@ title: Share one worker across queues
 description: Share a worker across HTTP or SQS Standard queues, update live poll weights and choose a receive wait.
 ---
 
-**Available in Ledgence 0.9.0.** Use a matching worker and orchestrator.
+**Available in Ledgence 0.10.2.** Use a matching worker and orchestrator.
 
 Suppose you want seven of every ten polling opportunities to go to interactive
 work and three to batch work when both queues are enabled. Save this as
@@ -23,7 +23,7 @@ work and three to batch work when both queues are enabled. Save this as
 
 Start your existing worker with `--poll-plan ./poll-plan.json` in place of
 `--queue NAME`. Keep the same server, storage, Python runner and credentials.
-For example, from the `v0.9.0` checkout with the local server running and its
+For example, from the `v0.10.2` checkout with the local server running and its
 program store at `./store`, run:
 
 ```sh
@@ -65,13 +65,13 @@ To see individual poll choices, start the worker with
 
 ## Connect the same worker to two SQS queues
 
-Keep the poll plan above. It says how often to poll `interactive` and `batch`. A second file tells Ledgence where those queues live. Build matching 0.9.0 binaries with SQS support:
+Keep the poll plan above. It says how often to poll `interactive` and `batch`. A second file tells Ledgence where those queues live. Build matching 0.10.2 binaries with SQS support:
 
 ```sh
 cargo build --locked -p ledgence-cli --features sqs
 ```
 
-For a local ElasticMQ server on port 9324, create two Standard queues named `interactive` and `batch`. Open `examples/delivery-sqs-multi-local.json` in your editor. Replace each `queue_url` with the URL returned by your broker. Each physical queue must serve just its named logical route. For AWS, supply the actual region and queue URLs and omit `endpoint_url` and `local_credentials`. [Example route file](https://github.com/Ledgence/ledgence/blob/develop/examples/delivery-sqs-multi-local.json).
+For a local ElasticMQ server on port 9324, create two Standard queues named `interactive` and `batch`. Open `examples/delivery-sqs-multi-local.json` in your editor. Replace each `queue_url` with the URL returned by your broker. Each physical queue must serve just its named logical route. For AWS, supply the actual region and queue URLs and omit `endpoint_url` and `local_credentials`. [Example route file](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/delivery-sqs-multi-local.json).
 
 Start the source-built orchestrator using your existing database and program store. Add the following option to its usual `serve` command:
 

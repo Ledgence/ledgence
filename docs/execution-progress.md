@@ -1,7 +1,6 @@
 # Resumable execution progress
 
-**Development source for the next release.** This capability is not included in
-0.9.0 binaries, images or packages. Use matching server and client source builds.
+**Available in Ledgence 0.10.2.** Use matching server and client versions.
 
 Read lifecycle facts already committed for one task or workflow. Progress reads
 never run recovery, allocate a worker, resubmit an execution or change its state.
@@ -139,7 +138,7 @@ It never holds a tool request open for the execution's entire lifetime.
 
 ## Console
 
-Matching development Console contract **16** includes a live **Lifecycle** timeline
+Matching Console contract **16** includes a live **Lifecycle** timeline
 under **Trace** in task details and **General** in workflow details. The browser uses a metadata-authorized, same-origin
 `POST /v1/console/executions/progress` with the installation scope supplied by the
 server. The `execution_progress` capability is false when the complete reader is
