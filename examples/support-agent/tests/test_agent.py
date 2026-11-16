@@ -323,9 +323,20 @@ class AdkRunnerTests(unittest.TestCase):
     def test_execution_deadline_cancels_provider_and_closes_transport(self):
         started = []
         stopped = []
+        deadlines = []
+        real_timeout = asyncio.timeout
+
+        def capture_timeout(seconds):
+            deadline = real_timeout(seconds)
+            deadlines.append(deadline)
+            return deadline
 
         async def hang(model, llm_request, stream=False):
             started.append(True)
+            self.assertEqual(len(deadlines), 1)
+            # Expire the real invocation deadline only after the provider enters;
+            # ADK/session initialization must not race a tiny wall-clock budget.
+            deadlines[0].reschedule(asyncio.get_running_loop().time())
             try:
                 await asyncio.Event().wait()
                 yield
@@ -334,9 +345,16 @@ class AdkRunnerTests(unittest.TestCase):
 
         model = self.ScriptedModel(model="mock-provider")
         transport = SimpleNamespace(aio=SimpleNamespace(aclose=AsyncMock()), close=Mock())
-        with patch.dict(os.environ, {"GOOGLE_API_KEY": "unit-test-placeholder"}), patch.object(program, "_create_model", side_effect=model_factory(model, transport)), patch.object(self.ScriptedModel, "generate_content_async", hang), patch.object(program, "MAX_RUN_SECONDS", 0.05):
+        with (
+            patch.dict(os.environ, {"GOOGLE_API_KEY": "unit-test-placeholder"}),
+            patch.object(program, "_create_model", side_effect=model_factory(model, transport)),
+            patch.object(self.ScriptedModel, "generate_content_async", hang),
+            patch.object(asyncio, "timeout", side_effect=capture_timeout) as timeout,
+        ):
             with self.assertRaisesRegex(program.AgentError, "execution budget"):
                 program.handle(event())
+        timeout.assert_called_once_with(program.MAX_RUN_SECONDS)
+        self.assertTrue(deadlines[0].expired())
         self.assertEqual(started, [True])
         self.assertEqual(stopped, [True])
         transport.aio.aclose.assert_awaited_once()
