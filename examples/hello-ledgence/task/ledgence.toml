@@ -18,4 +18,4 @@ requirements = "requirements.txt"
 platform = "linux/amd64"
 python = "3.14"
 protocol = 3
-image = "docker.io/ledgence/ledgence@sha256:4c0e7c0d263e38246ae9db3c11c694a9b311257ecb2559f438038627ead30de8"
+image = "docker.io/ledgence/ledgence@sha256:c420817cc850c56fe1338e95ea3f04cac6a91713decd887965aaa386f42a625c"
