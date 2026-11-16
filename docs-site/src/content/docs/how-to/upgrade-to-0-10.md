@@ -1,12 +1,11 @@
 ---
-title: Prepare an upgrade from 0.9 to 0.10
-description: Rehearse the 0.10 candidate migration while preserving execution files, receipts, instance identity and external effects.
+title: Upgrade from 0.9 to 0.10
+description: Rehearse the 0.10 migration while preserving execution files, receipts, instance identity and external effects.
 ---
 
-**Candidate source, not yet a verified public distribution.** The verified release
-remains 0.9.0. Use matching 0.10.2 candidate components for this rehearsal; do not
-substitute a source version bump for verified native bundles, packages, images or
-a local kit. The [candidate release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.10.2.md)
+**Ledgence 0.10.2 is published.** Upgrade the server, workers, CLI, Console and
+Python packages together, using verified downloads. Rehearse the migration on an
+isolated restore before changing a running installation. The [release notes](https://github.com/Ledgence/ledgence/blob/develop/docs/releases/0.10.2.md)
 describe lifecycle progress, execution files, optional framework adapters and the
 expanded program-package profile.
 
@@ -17,7 +16,7 @@ and rehearse with a restored copy of your actual starting version. The
 
 ## Record the installation and recovery set
 
-Keep the verified 0.9.0 bundle and record the candidate's exact source commit and
+Keep the verified 0.9.0 bundle and record the new bundle's exact source commit and
 archive checksum. Save the original instance, scope, credential authority and
 explicit capabilities, provider/admission policies, program digests, queue routes
 and completion destinations. Keep protected configuration in its normal secure
@@ -38,9 +37,9 @@ backup procedure; copying a live database volume is not consistent. Preserve the
 matching immutable program store, configuration and any configured execution-file
 store. Worker caches and artifact spools are transient and are not recovery copies.
 
-Published 0.9.0 has no execution-file store. New candidate local kits configure
+Published 0.9.0 has no execution-file store. New 0.10.2 local kits configure
 filesystem storage in `execution-artifacts`, separate from `programs` and the
-transient `artifact-spool` volume. If rehearsing or restoring a candidate that
+transient `artifact-spool` volume. If rehearsing or restoring a 0.10.2 installation that
 already accepted files, copy the **complete stopped store**, including hidden
 `.ledgence-artifact-store`, with the matching database and unchanged configured
 `store_id`.
@@ -50,14 +49,14 @@ first opens it**. Opening an empty target generates a new marker which the
 restored catalog rejects. The filesystem directory path may change; marker bytes
 and `store_id` must not. For S3, endpoint, region, bucket and prefix bind the store
 identity. Copying objects to another bucket or prefix is not a transparent
-restore. See [execution-file storage](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#retention-and-backup).
+restore. See [execution-file storage](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/execution-artifacts.md#retention-and-backup).
 
 ## Apply the migration and reconcile the ledger
 
 The new migration is `20261110000000_execution_artifacts.sql`. It adds the store
 binding, immutable artifact catalog, upload generations and durable cleanup
 evidence. Allow the rehearsed maintenance window for DDL and locks; this is an
-offline upgrade. From the verified candidate bundle, set `DATABASE_URL` through
+offline upgrade. From the verified 0.10.2 bundle, set `DATABASE_URL` through
 the deployment's secret mechanism to select the stopped installation's database:
 
 ```sh
@@ -73,7 +72,7 @@ example `1800000`. After interruption or timeout, rerun the same migrator and
 reconcile its recorded versions and checksums before starting services. Do not
 edit the ledger to hide a failure. The previous binary rejects the new schema.
 
-Start the candidate with the original instance, authority and scope, matching
+Start 0.10.2 with the original instance, authority and scope, matching
 Console contract **16** assets, worker binaries, bundled helpers and Python SDKs.
 Inspect previously accepted tasks, local results, owned forks, callbacks, queue
 and resource state. Repeat saved idempotent submissions or approval decisions
@@ -95,7 +94,7 @@ need `artifact_write`, metadata reads need `metadata_read`, and downloads need
 `sensitive_read`. Use `ledgence access issue --config` with the **existing authority
 configuration**, then deploy its replacement verifier configuration to every
 replica. Do not run `access init` as an upgrade step: it creates a new authority.
-[Issue and rotate credentials](https://github.com/Ledgence/ledgence/blob/develop/docs/instance-access.md#add-and-rotate-credentials).
+[Issue and rotate credentials](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/instance-access.md#add-and-rotate-credentials).
 
 The three [framework profiles](/how-to/agent-frameworks) require their exact
 optional SDK versions and matching runtime helper. PydanticAI and Google ADK use
@@ -107,10 +106,10 @@ Upgrade **every eligible worker** before publishing packages using the negotiate
 8,192-entry profile. Legacy 4,096-entry negotiation remains available. Existing
 compatible immutable packages need no forced rebuild; retain their digests and
 respect platform, runtime and exact CPython major/minor requirements. The
-[program publication contract](https://github.com/Ledgence/ledgence/blob/develop/docs/program-publication.md)
+[program publication contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/program-publication.md)
 defines rejection before PUT when a peer supports only legacy limits.
 
-Use each kit's configured shutdown grace. New candidate kits allow 65 seconds for
+Use each kit's configured shutdown grace. New 0.10.2 kits allow 65 seconds for
 the worker and 155 seconds for the orchestrator; `down` must not apply a blanket
 timeout. Old saved kits retain their original configuration. Do not overwrite
 saved kits or delete volumes to work around an upgrade error.
@@ -120,7 +119,7 @@ saved kits or delete volumes to work around an upgrade error.
 Roll back into a **fresh isolated database** restored from the original 0.9.0
 backup, with matching old binaries, helper, Console, program store and
 configuration. Do not run the old binary on the migrated database or invent down
-migrations. Candidate artifact recovery instead needs its matching candidate
+migrations. Recovery of 0.10.2 execution files instead needs its matching 0.10.2
 database and full byte store with the preserved identity described above.
 
 If external work occurred after the backup, keep workers stopped and reconcile

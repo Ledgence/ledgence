@@ -17,12 +17,10 @@ bundle, package, checksum, installer and kit has passed its download checks.
 See [CI qualification](ci.md) for the independent source and delivery suites,
 artifact reuse, timing evidence and exact-commit requirements.
 
-The current stable release is **0.9.0**. It adds resource admission, weighted offers, shared run budgets, worker poll plans and queue concurrency. See the [0.9.0 release notes](releases/0.9.0.md) and the [upgrade from 0.8.0](../docs-site/src/content/docs/how-to/upgrade-to-0-9.md).
-
-The current release candidate is **0.10.2**. Review its
-[candidate notes](releases/0.10.2.md) and
+The current stable release is **0.10.2**. It adds resumable execution progress,
+immutable execution files, optional agent-framework adapters and an expanded
+program-package profile. See the [release notes](releases/0.10.2.md) and the
 [0.9-to-0.10 upgrade procedure](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
-Keep the latest stable identity above until every distribution channel is verified.
 
 For future releases, keep public metadata at the last verified version until all
 channels are complete. A source version bump or local build does not establish
@@ -66,13 +64,13 @@ service for relocated verification. Set `include_console=false` to run only the
 headless jobs; set `candidate=rc.N` to select the candidate label.
 
 The Linux Console job upgrades published Linux x86_64 bundles from 0.6.1, 0.7.0,
-0.8.0 and the latest stable 0.9.0, each pinned to its archive checksum. The older
+0.8.0 and the 0.9.0 predecessor used to qualify 0.10, each pinned to its archive checksum. The older
 approval rehearsals remain required; the resource and artifact rehearsals do not
 replace them. Every rehearsal uses the extracted candidate executable, Console
 and Python runner and owns a separate database/evidence directory under
 `approval-upgrade/evidence/<version>`. Neither source-only tests nor an older
-baseline substitute for the latest-stable rehearsal. The development candidate's
-Console contract is 16; the published 0.9.0 bundle retains contract 14.
+baseline substitute for the required 0.9-to-0.10 rehearsal. The 0.10 Console
+contract is 16; the published 0.9.0 predecessor bundle retains contract 14.
 The resource and artifact gates pin each published target's source and release
 commits and require matching predecessor/candidate targets. For 0.8.0, Linux was
 built at the release merge while macOS retained its source-equivalent ancestor
@@ -179,7 +177,7 @@ restart qualification and representative load/soak scenarios. Packaging evidence
 covers only the gates the packaging tool actually executes; it is not a
 substitute for the integration and capacity reports.
 
-For the development adapters, also run the installed-framework and real-worker
+For the optional framework adapters, also run the installed-framework and real-worker
 qualification with each selected candidate's bundled helper. The three optional
 SDK profiles have separate outcomes; no SDK may be silently omitted. Preserve
 full/partial replay, committed-but-lost acknowledgement, unaccepted crash,

@@ -11,7 +11,7 @@ For your first application, choose [a local installation](/getting-started/insta
 and start with [Hello Ledgence](/tutorials/first-task). Those routes use released
 runtime images and teach you to write your own program.
 
-Here you will build the `v0.9.0` source release in Docker. Its Compose deployment
+Here you will build the `v0.10.2` source release in Docker. Its Compose deployment
 includes a database, orchestrator, Console, worker and callback receiver. It is
 a separate project from an installation managed by `ledgence local` or the
 published kit. Stop another stack before reusing port 8080.
@@ -24,7 +24,7 @@ by the container build; they do not need to be installed on your host.
 
 Allow additional time and disk space for the first build. It downloads pinned
 base images, Rust dependencies and frontend dependencies. Use a fresh deployment
-for this walkthrough; follow [Upgrade to 0.9.0](/how-to/upgrade-to-0-9) before
+for this walkthrough; follow [Upgrade to 0.10.2](/how-to/upgrade-to-0-10) before
 adopting retained data from another version.
 
 ## 1. Get the source
@@ -32,7 +32,7 @@ adopting retained data from another version.
 In the directory where you keep projects:
 
 ```sh
-git clone --branch v0.9.0 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
+git clone --branch v0.10.2 --depth 1 https://github.com/Ledgence/ledgence.git ledgence-source
 cd ledgence-source
 ```
 
@@ -151,13 +151,13 @@ records in named volumes. Start again with the same `up` command from step 3.
 Keep the environment file and project name consistent; the native CLI does not
 manage or upgrade this source-Compose deployment.
 
-Compose uses the grace periods saved in that release's configuration. A newer
-source kit also configures a durable execution-file volume and a transient spool;
+Compose uses the grace periods saved in that release's configuration. The 0.10.2
+source kit configures a durable execution-file volume and a transient spool;
 it gives the worker 65 seconds and the orchestrator 155 seconds to stop. Existing
-0.9.0 kits remain unchanged. Before changing versions, follow the
-[backup procedure](/how-to/run-local-distribution#preserve-configuration-and-data)
-and the [0.10 upgrade preparation](/how-to/upgrade-to-0-10), including the
-execution store's hidden identity marker when that store is configured.
+0.9.0 deployments retain their saved configuration. Before changing versions,
+follow the [backup procedure](/how-to/run-local-distribution#preserve-configuration-and-data)
+and the [0.10 upgrade](/how-to/upgrade-to-0-10), including the execution store's
+hidden identity marker when that store is configured.
 
 ## If the example does not finish
 
@@ -172,8 +172,8 @@ Keep concurrency 1 for the process-reuse assertion.
 
 The demo receiver stores at most 256 callback events. Repeated demonstrations
 can fill it; it is not a production callback service. The
-[source deployment reference](https://github.com/Ledgence/ledgence/blob/develop/docs/local-deployment.md)
+[source deployment reference](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/local-deployment.md)
 covers more options, including SQS-compatible delivery through ElasticMQ.
 
-**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.9.0/deploy/local/compose.yaml) ·
-[Example assertions](https://github.com/Ledgence/ledgence/blob/v0.9.0/deploy/local/demo.py)
+**Source:** [Compose configuration](https://github.com/Ledgence/ledgence/blob/v0.10.2/deploy/local/compose.yaml) ·
+[Example assertions](https://github.com/Ledgence/ledgence/blob/v0.10.2/deploy/local/demo.py)

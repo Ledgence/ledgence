@@ -12,13 +12,16 @@ The [delivery driver](worker-delivery.md) executes assignments through the appli
 <span id="prepare-an-upgrade-from-090-to-0100"></span>
 <span id="prepare-an-upgrade-from-090-to-0101"></span>
 
-## Prepare an upgrade from 0.9.0 to 0.10.2
 
-The 0.10.2 candidate adds `20261110000000_execution_artifacts.sql` for store
+<span id="prepare-an-upgrade-from-090-to-0102"></span>
+
+## Upgrade from 0.9.0 to 0.10.2
+
+Ledgence 0.10.2 adds `20261110000000_execution_artifacts.sql` for store
 bindings, immutable manifests, upload generations and durable cleanup evidence.
-The verified public release remains 0.9.0. Follow the
+Follow the
 [0.10 upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md) with
-matching candidate binaries, Console contract 16 assets, worker helpers and SDKs.
+matching 0.10.2 binaries, Console contract 16 assets, worker helpers and SDKs.
 
 Stop all writers and retention maintenance, preserve the instance, authority and
 scope, and back up the database, immutable programs, configuration and any
@@ -355,7 +358,7 @@ composed grants; late original evidence remains admissible. See
 
 ## Cluster-wide queue concurrency
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C16 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 Weighted resource admission stores the group cursor on the resource row. Each successful reservation appends a row to `admission_offer_decisions` in the same transaction. The per-resource journal grows with weighted offers. Group mapping edits reclassify the live backlog under that lock. Rehearse migrations and large policy edits on a representative restore. See [weighted offers](resource-admission.md#weighted-offers).
 

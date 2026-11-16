@@ -1,7 +1,7 @@
 # Execution files and artifact references
 
-**Development source for the next release; not available in 0.9.0.** Use matching
-server, worker, CLI and Python components from this checkout. Program ZIP
+**Available in Ledgence 0.10.2.** Use matching server, worker, CLI and Python
+components with configured execution storage. Program ZIP
 publication and the worker's program cache are separate capabilities.
 
 Execution artifacts let a task, workflow entrypoint or authorized client keep a

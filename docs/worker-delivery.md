@@ -109,12 +109,12 @@ user data cannot choose that authority. Lost acknowledgments retry the identical
 record while authority remains live. A returned controller decision uses the
 existing settlement and cleanup path.
 
-Ledgence 0.9.0 workflows can declare `protection: "external_effect"` in their
+Since Ledgence 0.9.0, workflows can declare `protection: "external_effect"` in their
 approval request. The helper rejects `approved_local` for that saved request,
 and the store checks the persisted wake before accepting any reserved ordinary
 local-result commit. This check applies before the first dispatch grant.
 
-Ledgence 0.9.0 workers also handle `approved_effect.claim` for an approved
+Since Ledgence 0.9.0, workers also handle `approved_effect.claim` for an approved
 workflow continuation. Unlike a local-result commit, the worker sends a claim
 once; replaying a previously committed grant would permit a second write. It
 checks the receipt against the live owner, approval and action before passing
@@ -126,7 +126,7 @@ confirmation after losing a reply. A valid reply identifies the scope,
 workflow, activation, attempt, approval and journal key. See
 [approved external writes](workflow-approvals.md#protect-an-approved-external-write).
 
-Before starting a connected worker, matching 0.9.0 binaries request
+Before starting a connected worker, matching 0.10.2 binaries request
 `GET /v1/access`. A credentialed connection validates the worker class,
 permissions, scope and expiry. When complete v2 support is advertised, the
 connection retains the returned authority, instance and stable worker identity
@@ -156,7 +156,7 @@ the durable coordinator's selected assessment. See
 
 #### Runtime feature discovery for Rust compositions
 
-In Ledgence 0.9.0, `HttpTaskService::discover_worker_runtime()` returns the validated
+Since Ledgence 0.9.0, `HttpTaskService::discover_worker_runtime()` returns the validated
 feature manifest separately from the optional authenticated effect-evidence
 binding. A valid manifest can retain unknown feature names without enabling
 effect evidence. `DeliveryDriver::with_runtime_features()` carries these names
@@ -213,7 +213,7 @@ The original mutation callback keeps the normal workflow-attempt budget. A due
 read-only check can overlap it; neither a missing result nor a lookup miss permits
 resending the mutation.
 
-In matching 0.9.0 builds, authenticated workers can negotiate `task_admission.v1`.
+In matching 0.10.2 builds, authenticated workers can negotiate `task_admission.v1`.
 Capacity waiting occurs before assignment. A governed assignment authorizes
 bounded preparation, never ordinary Dispatch. The runtime-ready grant is checked
 again at the subprocess invocation frame. A lost reply does not authorize replay;
@@ -286,4 +286,4 @@ whether governed work can start; see [resource admission](resource-admission.md)
 
 ## Cluster-wide queue concurrency
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C16 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).

@@ -11,7 +11,7 @@ instead; the CLI does not adopt a separately created Compose project.
 
 A CLI-managed installation uses a verified, versioned Docker Compose kit.
 The kit pins the runtime image by digest and includes PostgreSQL, a migrator,
-the orchestrator with Console, and one worker. Ledgence 0.9.0 supports
+the orchestrator with Console, and one worker. Ledgence 0.10.2 supports
 `linux/amd64` and `linux/arm64` containers with CPython 3.14.
 
 ## Before you start
@@ -79,10 +79,10 @@ stop following logs without stopping the service. `--service` accepts
 `postgres`, `migrate`, `orchestrator` or `worker`, and `--tail` accepts 1–10000.
 For a custom installation, add its original `--directory` to each command.
 
-The development CLI's `down` preserves named volumes and respects each saved
-service's Compose grace period. New development kits allow 65 seconds for the
+The 0.10.2 CLI’s `down` preserves named volumes and respects each saved
+service's Compose grace period. New 0.10.2 kits allow 65 seconds for the
 worker and 155 seconds for the orchestrator; old saved kits keep their original
-settings. The published 0.9.0 CLI uses a 65-second shutdown timeout. The next
+settings. The older 0.9.0 CLI used a 65-second shutdown timeout. The next
 `up` uses the saved kit and settings. If startup failed after state was saved,
 inspect `status` and logs, resolve the reported cause and retry `up`. Do not
 remove state or data volumes to work around a startup error.
@@ -101,7 +101,7 @@ kit, runtime image or schema, and different settings are rejected for existing
 state. Use a separate directory for independent experiments.
 
 The database, program store and worker cache live in **Docker named volumes**,
-not inside the state directory. New development kits also configure a durable
+not inside the state directory. New 0.10.2 kits also configure a durable
 `execution-artifacts` volume and transient `artifact-spool`; existing 0.9.0 kits
 are unchanged. Back up the database, immutable programs, configured execution
 store and saved configuration together. Worker cache and spool are not recovery
@@ -119,8 +119,7 @@ restore. Verify a restored file's metadata and bytes before resuming writers.
 
 There is no `local restore`, automatic stack upgrade, database rollback, or
 migration to another Docker engine. Validate a compatible restore before an
-explicit version upgrade. See [Upgrade to 0.9.0](/how-to/upgrade-to-0-9) or
-[prepare a 0.10 upgrade](/how-to/upgrade-to-0-10). `down --volumes` through direct
+explicit version upgrade. See [Upgrade from 0.9 to 0.10](/how-to/upgrade-to-0-10). `down --volumes` through direct
 Compose deletes the selected project's durable volumes, including execution files
 when configured; it is an intentional reset, not a recovery procedure.
 
@@ -132,7 +131,7 @@ not make one program ZIP portable across both architectures. The
 [first task tutorial](/tutorials/first-task) shows how to select that target,
 prepare a program and publish it.
 
-The 0.9.0 kit enables HTTP program publication and gives the orchestrator write
+The 0.10.2 kit enables HTTP program publication and gives the orchestrator write
 access to the shared program store. The worker reads that store. An older saved
 kit retains its original behavior even after you update the CLI.
 
@@ -157,5 +156,5 @@ built from a checkout, use the [advanced source walkthrough](/tutorials/run-loca
 These are separate lifecycle methods; do not mix their commands against one
 installation.
 
-**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.9.0/crates/ledgence-cli/src/local.rs) ·
-[Distribution contract](https://github.com/Ledgence/ledgence/blob/develop/docs/container-distribution.md)
+**Source:** [Local CLI](https://github.com/Ledgence/ledgence/blob/v0.10.2/crates/ledgence-cli/src/local.rs) ·
+[Distribution contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/container-distribution.md)

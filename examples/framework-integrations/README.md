@@ -6,8 +6,9 @@ shared Ledgence controller then requests approval, waits for shared capacity,
 dispatches the saved notice through a simulated provider, and waits for its result.
 SDK callbacks have no approval, admission or dispatch authority.
 
-This is **current development functionality for 0.10**, not functionality in the
-published 0.9 worker helper. Use matching components from this source checkout.
+These adapters are **available in Ledgence 0.10.2**. Use matching workers and
+helpers, and prepare the selected SDK in your application package. The offline
+checks below run from the matching source checkout.
 No model account, credentials, live provider, Claude CLI or CLI download is needed
 for the checks below. Live provider and proprietary CLI behavior is not exercised.
 

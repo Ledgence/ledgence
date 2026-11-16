@@ -5,7 +5,7 @@ description: Core submission, observation, task discovery, and external-event AP
 
 The `ledgence-client` package exposes `ledgence.client` for asynchronous submission and observation. It is separate from the worker-supplied `ledgence.worker` helper.
 
-This reference covers `ledgence-client` **0.9.0**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
+This reference covers `ledgence-client` **0.10.2**, published on PyPI. It requires Python 3.11 or newer; the qualified test matrix covers Python 3.11–3.14 on Linux x86_64/glibc and macOS arm64. The pre-1.0 API can evolve, so pin versions and review changes before upgrading.
 
 ## Installation
 
@@ -13,13 +13,13 @@ A project created with `ledgence program new` already declares the client;
 run `uv sync` in that project. For an existing uv application, add it with:
 
 ```sh
-uv add "ledgence-client==0.9.0"
+uv add "ledgence-client==0.10.2"
 ```
 
-If you use pip instead, run `python -m pip install "ledgence-client==0.9.0"`
+If you use pip instead, run `python -m pip install "ledgence-client==0.10.2"`
 inside your application's activated virtual environment. Choose the command
 for your environment manager; do not run both. The optional `otel` extra is
-`ledgence-client[otel]==0.9.0` when your application needs tracing integration.
+`ledgence-client[otel]==0.10.2` when your application needs tracing integration.
 
 The client does not include a server, worker, or Python worker helper. Start a
 complete stack through [local installation](/getting-started/installation), then
@@ -57,11 +57,11 @@ Open the client with `async with`, reuse it across calls, and keep it on its own
 
 ## Credentials
 
-The 0.9.0 client accepts `credentials_file="access/operator.json"` or
+The 0.10.2 client accepts `credentials_file="access/operator.json"` or
 `token=` in `AsyncClient`. Choose one credential source. Files bind the credential
 to the configured server URL. HTTPS is required for remote access, with loopback
 HTTP supported for development. `Unauthenticated` and `Forbidden` describe
-rejected operations. These options require matching 0.9.0 components.
+rejected operations. These options require matching 0.10.2 components.
 [Configure instance access](/how-to/configure-instance-access).
 
 ## Submit a task or root workflow
@@ -156,13 +156,13 @@ For submission, `SubmissionUncertain.submission` preserves the frozen task or wo
 
 Prepare and persist commands before awaiting if they must survive caller cancellation. `asyncio.CancelledError` remains cancellation of the caller; it does not prove the server rejected the mutation.
 
-Saved `to_dict()` values contain the wire command, not the base URL. Keep the original endpoint and scope with your application record. On restart, reconnect there and reconstruct the original preparation arguments; the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) documents each mutation's reconstruction path. Preserve any original trace context or its explicit absence when reconstructing a submission.
+Saved `to_dict()` values contain the wire command, not the base URL. Keep the original endpoint and scope with your application record. On restart, reconnect there and reconstruct the original preparation arguments; the [complete client contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md) documents each mutation's reconstruction path. Preserve any original trace context or its explicit absence when reconstructing a submission.
 
 ## Completion notifications
 
 Both task and workflow handles expose `prepare_subscribe(destination=..., idempotency_key=...)` and `await subscribe(...)`. The destination is an operator-configured alias. Registration is separate from submission; its guarantee starts after acceptance.
 
-Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
+Save the returned subscription ID and reconnect with `client.completions.handle(subscription_id)`. `await subscription.status()` observes delivery; after `exhausted`, `subscription.prepare_retry(expected_generation=status.generation)` prepares an explicit new delivery generation for `await subscription.retry(command)`. This retries the notification, not the task or workflow. See [the complete subscription API](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md#durable-completion-subscriptions) for status fields and uncertainty handling.
 
 ## Discover approvals across workflows
 
@@ -179,9 +179,9 @@ filters to read another page.
 
 Use `workflow.prepare_approval_decision(approval, decision_id=..., decision="approve", reviewer=...)` to freeze the decision, and save `command.to_dict()` before `await workflow.decide_approval(command)`. Use `"reject"` for rejection. `ApprovalDecisionUncertain` retains the same command for explicit reconciliation; the client does not automatically resend it. Restore a saved command with `workflow.restore_approval_decision(saved_dict)` after restarting the client. Identical decisions return the original receipt; changed bindings conflict.
 
-A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#workflow-approvals).
+A decision cannot create a pending request. The reviewer string is claimed attribution; deployment authentication must establish the actual approver. Generic external workflow events cannot grant approval. See [Require approval before a tool call](/how-to/require-approval) and the [complete client contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md#workflow-approvals).
 
-**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.9.0/sdk/python-client/src/ledgence/client)
+**Source:** [Client contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md) · [Typed implementation](https://github.com/Ledgence/ledgence/tree/v0.10.2/sdk/python-client/src/ledgence/client)
 
 
 <span id="operator-audit-in-development"></span>
@@ -195,7 +195,7 @@ Matching client builds add `client.audit.list()` and `client.audit.approval_acce
 
 ## Retained effect evidence
 
-Matching 0.9.0 client and server builds provide `client.effects`. Start with an
+Matching 0.10.2 client and server builds provide `client.effects`. Start with an
 open `AsyncClient` using the instance's
 scope and credentials:
 
@@ -231,8 +231,8 @@ retries or background polling occur.
 Evidence is retained independently of execution collection. Verified worker
 sources identify who reported an outcome, not whether the provider performed
 it. Legacy sources remain unattributed. Inspection does not approve, resolve or
-retry an effect. See the [complete client contract](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#retained-effect-evidence-development)
-and [effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+retry an effect. See the [complete client contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md#retained-effect-evidence-development)
+and [effect evidence contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/effect-evidence.md).
 
 
 <span id="operator-effect-assessments-in-development"></span>
@@ -262,14 +262,14 @@ its entry is outside the selected page. `EffectFilter.DISPUTED` selects current
 assessment conflict; `DISCREPANT` preserves historical disagreement. An operator
 assessment never redispatches, confirms the journal or claims provider truth.
 
-See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#operator-effect-assessments-development).
-These additions require matching 0.9.0 components.
+See the [complete assessment API and copyable file-based example](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md#operator-effect-assessments-development).
+These additions require matching 0.10.2 components.
 
 <span id="typed-provider-evidence-in-development"></span>
 
 ## Typed provider evidence
 
-Matching 0.9.0 components add `ProviderFilter` to the existing
+Matching 0.10.2 components provide `ProviderFilter` for the existing
 `client.effects.inbox(provider_filter=ProviderFilter.NEEDS_REVIEW)` call. Choices
 are `ALL`, `PENDING`, `NEEDS_REVIEW`, `SUCCEEDED`, `FAILED`, `CANCELLED` and
 `DISPUTED`; the ordinary effect `filter` must remain `ALL`. Omit the new argument
@@ -290,13 +290,13 @@ whose task success does not itself establish external success.
 
 See the
 [provider recovery guide](/how-to/recover-provider-operations) and the
-[complete SDK models and example](https://github.com/Ledgence/ledgence/blob/develop/sdk/python-client/README.md#typed-provider-operations-development).
+[complete SDK models and example](https://github.com/Ledgence/ledgence/blob/v0.10.2/sdk/python-client/README.md#typed-provider-operations-development).
 
 <span id="resource-administration-in-development"></span>
 
 ## Resource administration
 
-The 0.9.0 client adds `client.resources.put/get/list`, typed `ResourcePolicy`
+The 0.10.2 client provides `client.resources.put/get/list`, typed `ResourcePolicy`
 and `ResourceRate`, and `client.admissions.inspect/release`. Resource metadata
 requires metadata access; arguments/results require audited sensitive access;
 mutations require operator `resource_control`. Preserve command identity after
@@ -307,9 +307,9 @@ generic operation result. `snapshot.provider.call_completion` distinguishes a
 completed original call from uncertain completion; it does not describe business
 success. Inspect the linked effect ticket for provider knowledge and recovery.
 Version-2 provider approvals also expose the reviewed resource requirement.
-All of these extensions require the matching 0.9.0 client and server.
+All of these extensions require the matching 0.10.2 client and server.
 
-In matching 0.9.0 builds, `TaskAdmission(resource="support-model")` is an
+In matching 0.10.2 builds, `TaskAdmission(resource="support-model")` is an
 optional `client.tasks.submit` / `prepare` argument. Use
 `client.task_admissions.inspect(task.id, generation=1)` for audited evidence.
 [Control shared resource capacity](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
@@ -332,11 +332,13 @@ Use `ResourceFairGroup` and `ResourceFairSharing` from `ledgence.client` to conf
 
 ### Shared run budgets
 
-Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/develop/examples/shared-run-budget).
+Pass `budget=RunBudgetPolicy(max_calls=1, max_delegations=2)` when submitting a workflow. Import `RunBudgetPolicy` from `ledgence.client`. For a standalone task, supply its resource admission requirement as well. Read `await client.budgets.inspect(workflow_id=run.id)` and `await client.budgets.entries(workflow_id=run.id, limit=20)`. An execution subject always resolves to its server-derived root. [Runnable example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/shared-run-budget).
 
-## Execution progress (development source)
+<span id="execution-progress-development-source"></span>
 
-The development client adds `progress(cursor=None, limit=100, wait_ms=0)` and
+## Execution progress
+
+The 0.10.2 client provides `progress(cursor=None, limit=100, wait_ms=0)` and
 `follow_progress(cursor=None, poll_interval=1.0, timeout=None, stop_on_terminal=True, limit=100, wait_ms=20000)`
 to task and workflow handles. The follower yields bounded pages, with
 `next_cursor` for application-owned checkpointing. Its first read and backlog
@@ -344,10 +346,12 @@ reads are immediate; subsequent reads can wait up to 20 seconds for a transition
 `wait_ms` accepts 0–20,000 and is shortened to fit the remaining observer and
 request deadlines. `poll_interval` sets the minimum request cycle, so a long read
 does not add another sleep. `ProgressTimeout` ends only
-observation. These methods are not included in the 0.9.0 package.
+observation.
 [Guide and limits](/how-to/follow-execution-progress).
 
-## Execution files in development
+<span id="execution-files-in-development"></span>
+
+## Execution files
 
 `client.artifacts` adds typed `put_file`, `inspect`, `list`, `download`, `handle`,
 `upload_status`, `reconcile` and `replace` methods. Uploads target exactly one
@@ -356,5 +360,4 @@ never overwrite a destination. `reference.to_dict()` supplies user-owned JSON.
 Inside a running program use `from ledgence.worker import artifacts` instead,
 letting the Rust host bind the invocation's real identity and lease.
 
-These APIs need matching development components and configured storage, beyond
-published 0.9.0. [Create and download a report](/how-to/share-execution-files).
+These APIs need matching 0.10.2 components and configured storage. [Create and download a report](/how-to/share-execution-files).

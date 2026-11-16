@@ -7,14 +7,15 @@ store after startup and fetched into the worker's persistent verified cache.
 There is no required vendor account or hosted service.
 
 This guide describes the source-built Compose deployment, including Console.
-Use the `v0.9.0` source tag for this release; building `develop` uses the current
+Use the `v0.10.2` source tag for this release; building `develop` uses the current
 checkout's code and dependency pins. For prebuilt images and `ledgence local`,
 start with [installation](installation.md) and the separate
 [container distribution](container-distribution.md). Follow
 [Explore Ledgence Console](https://docs.ledgence.com/tutorials/use-console) for the
 browser-guided setup. Existing deployments must follow the
-[upgrade guide](upgrading-to-0.3.md) before reusing their database. It also links
-the required earlier migration steps for 0.1 installations.
+[0.9-to-0.10 upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md)
+before reusing their database. The [historical 0.3 upgrade guide](upgrading-to-0.3.md)
+retains the earlier migration steps for 0.1 installations.
 
 This is a local, operator-trusted-code deployment. The API is bound to host
 loopback. Database credentials are fixed nonsecret demo values, the internal
@@ -22,7 +23,7 @@ network uses HTTP, and the example receiver is deliberately bounded. Do not
 expose this configuration as a public multi-tenant service.
 
 
-The 0.9.0 templates also enable HTTP program publication on the
+The 0.10.2 templates also enable HTTP program publication on the
 orchestrator. Its shared `/programs` mount is writable; the worker's remains
 read-only. The matching native CLI can [build and publish its own program](program-publication.md)
 without naming Docker volumes. Existing deployments and published kits retain
@@ -67,7 +68,7 @@ particular acceptance example at one slot.
 
 The public API is `http://127.0.0.1:8080`; Console is under `/console/`. Set `LEDGENCE_HTTP_PORT` before `up` to
 choose another host port. Install the published client in a Python 3.11+ virtual
-environment with `python -m pip install "ledgence-client==0.9.0"`, then use:
+environment with `python -m pip install "ledgence-client==0.10.2"`, then use:
 
 ```python
 import asyncio
@@ -99,20 +100,20 @@ explain retry exhaustion, redelivery and production receiver responsibilities.
 ## Run the installed Python client example
 
 After starting the stack and publishing its programs, install the published
-**0.9.0** client in a host virtual environment. Use host CPython 3.11–3.14; this
+**0.10.2** client in a host virtual environment. Use host CPython 3.11–3.14; this
 interpreter runs the client, while programs execute using the separately declared
 interpreter inside the worker container.
 
 ```sh
 python3 -m venv /tmp/ledgence-compose-client
-/tmp/ledgence-compose-client/bin/python -m pip install "ledgence-client==0.9.0"
+/tmp/ledgence-compose-client/bin/python -m pip install "ledgence-client==0.10.2"
 /tmp/ledgence-compose-client/bin/python -I -B examples/local-compose-client.py --server http://127.0.0.1:8080
 ```
 
 Run the companion from the source checkout after the Compose setup above. The
 [Console tutorial](https://docs.ledgence.com/tutorials/use-console) follows this
-0.9.0 stack. The [release tutorial](https://docs.ledgence.com/tutorials/run-locally)
-starts from the matching `v0.9.0` tag. See the
+0.10.2 stack. The [release tutorial](https://docs.ledgence.com/tutorials/run-locally)
+starts from the matching `v0.10.2` tag. See the
 [release reference](https://docs.ledgence.com/reference/releases) for available
 native bundles and registry versions; these are released separately.
 
@@ -238,7 +239,7 @@ released.
 Pinned inputs and normalized candidate archives improve repeatability; Ledgence
 does not claim byte-identical compiled binaries across hosts. This Compose path
 builds its image locally. Versioned image publication and local-kit generation
-have separate [distribution gates](container-distribution.md). The 0.9.0 release
+have separate [distribution gates](container-distribution.md). The 0.10.2 release
 provides the qualified images and kit; this source-built path does not use them.
 The image's upstream Debian, CPython
 and utility components retain their licenses and possible source-distribution

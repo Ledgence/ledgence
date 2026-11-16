@@ -8,13 +8,13 @@ crate. It packages programs, runs workers and the orchestrator, administers
 tasks and approvals, connects MCP clients, and manages a local container stack.
 Worker and orchestrator processes run separately and can run on different hosts.
 
-**Version availability:** Ledgence **0.9.0** includes explicit program builds,
+**Version availability:** Ledgence **0.10.2** includes explicit program builds,
 HTTP publication and recovery alongside the existing local lifecycle and
 installed-resource discovery. Start with the
 [one-line installation](/how-to/install-native#one-line-installation) and
 [local distribution guide](/how-to/run-local-distribution).
 
-Ledgence 0.9.0 includes `program new` for functional task and workflow projects.
+Ledgence 0.10.2 includes `program new` for functional task and workflow projects.
 See [create a Python program](#create-a-python-program).
 
 This replaces the command layout in the historical `v0.1.1` source tag and
@@ -35,6 +35,8 @@ ledgence program --help
 ledgence worker --help
 ledgence orchestrator --help
 ledgence task --help
+ledgence workflow --help
+ledgence artifacts --help
 ledgence approval --help
 ledgence mcp --help
 ledgence local --help
@@ -57,8 +59,8 @@ install a telemetry exporter.
 Use `--features sqs` to include optional SQS delivery for both worker and
 orchestrator commands, or `--all-features` to include every supported integration.
 These are build features; telemetry export and SQS operation still require
-explicit runtime configuration. See [observability](https://github.com/Ledgence/ledgence/blob/develop/docs/observability.md) and
-[dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/dispatch-delivery.md).
+explicit runtime configuration. See [observability](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/observability.md) and
+[dispatch delivery](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/dispatch-delivery.md).
 
 ## Command groups
 
@@ -71,20 +73,24 @@ MCP requires its build feature, which is included in native release bundles.
 | `program` | `new`, `build`, `publish`, `register` | Create source projects, prepare, publish and register programs; `build` requires local Docker and an explicit worker target. |
 | `worker` | `run`, `connect` | Execute local fixtures or acquire durable work from an API. |
 | `orchestrator` | `migrate`, `serve`, `retain` | Apply schema changes, run the API, and preview or apply scoped retention. |
-| `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `cancel` | Submit and inspect task executions. |
+| `task` | `submit`, `list`, `inspect`, `status`, `result`, `attempt`, `history`, `progress`, `cancel` | Submit and inspect task executions. |
+| `workflow` | `progress` | Read or follow one workflow’s retained lifecycle history. |
+| `artifacts` | `put`, `inspect`, `list`, `status`, `reconcile`, `replace`, `download` | Store and retrieve execution files, and explicitly recover uncertain uploads. |
 | `approval` | `inbox`, `list`, `inspect`, `decide` | Review and decide persisted workflow actions. |
 | `mcp` | `serve` | Expose a scoped Ledgence API through MCP over stdio. |
 
-The published 0.9.0 CLI has no separate `workflow` command group. Use the
-[HTTP API](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md), [Python client](/reference/python-client),
-Console or MCP for workflow and event operations.
+The `workflow` command group currently provides progress reads only. Use the
+[HTTP API](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/http-orchestration.md), [Python client](/reference/python-client),
+Console or MCP for workflow submission, cancellation and external events.
 
-## Execution progress in development source
+<span id="execution-progress-in-development-source"></span>
 
-Matching development builds add `ledgence task progress` and
+## Execution progress
+
+Matching 0.10.2 components provide `ledgence task progress` and
 `ledgence workflow progress` for bounded lifecycle pages. Add `--follow` to follow
 new events and `--cursor` to resume retained history. These commands require a
-matching development server and are not in the published 0.9.0 CLI.
+matching server.
 
 ```sh
 ledgence task progress --server http://127.0.0.1:8080 \
@@ -98,7 +104,7 @@ single page. The first read and backlog reads in follow mode are immediate.
 
 ## Create a Python program
 
-**Available in Ledgence 0.9.0.** [Install the CLI](/how-to/install-native), or
+**Available in Ledgence 0.10.2.** [Install the CLI](/how-to/install-native), or
 [build the CLI from matching source](/how-to/build-cli-from-source). Once the executable is
 on your `PATH`:
 
@@ -181,7 +187,7 @@ Docker `--context` on first startup; saved options do not change implicitly.
 | `local up` | Verify and copy the kit on first use, start the saved Compose project, and wait for readiness. Print API/Console URLs, scope, image, context and worker platform. |
 | `local status` | Display all service states and saved settings without starting containers. |
 | `local logs` | Show 100 recent lines per service by default. Accept `--tail 1..10000`, `--follow`, and `--service postgres\|migrate\|orchestrator\|worker`. |
-| `local down` | In published 0.9.0, stop the project with a 65-second grace period, preserving data volumes and configuration. The 0.10 candidate honors each service’s saved Compose grace period. |
+| `local down` | Stop the project using each service’s saved Compose grace period, preserving data volumes and configuration. New 0.10.2 kits allow 65 seconds for the worker and 155 seconds for the orchestrator. |
 
 The base stack runs PostgreSQL, a migrator, an orchestrator serving Console,
 and one worker in tenant `acme`, namespace `demo`, queue `demo`. Programs and
@@ -230,7 +236,7 @@ and deployment configuration:
 | `ledgence task ...` | `ledgence task ...` |
 | `ledgence program register ...` | `ledgence program register ...` |
 
-Keep each command's existing options after its new prefix. The 0.9.0 source builds
+Keep each command's existing options after its new prefix. The 0.10.2 source builds
 and native bundles contain only the `ledgence` executable; they do not
 provide legacy executable aliases. The `ledgence-worker` and
 `ledgence-orchestrator` Rust crates remain internal composition libraries.
@@ -240,8 +246,8 @@ Telemetry service names remain `ledgence-worker`, `ledgence-orchestrator`, and
 `program publish` writes immutable package contents to a store.
 `program register` makes a separate HTTP request to register an existing
 published reference. Publication starts no worker or
-execution. Ledgence 0.9.0 supports explicit subsequent registration
-with `publish --server URL --register`. See [program packages](https://github.com/Ledgence/ledgence/blob/develop/docs/program-packages.md) and
+execution. Ledgence 0.10.2 supports explicit subsequent registration
+with `publish --server URL --register`. See [program packages](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/program-packages.md) and
 [Console registration](/how-to/register-agent).
 
 `worker run` executes local task fixtures; `worker connect` acquires work from a
@@ -251,11 +257,11 @@ an explicit scoped operator operation through `orchestrator retain`.
 Both migration and service operation require `DATABASE_URL`. Retention previews
 eligible records by default, requires a tenant and namespace, and changes data
 only with `--apply`; its minimum retention is 90 days. See
-[retention](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/retention.md).
+[retention](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/retention.md).
 
 ## Program builds and HTTP publication
 
-Use matching 0.9.0 CLI and server components. A server must opt in with
+Use matching 0.10.2 CLI and server components. A server must opt in with
 `--allow-program-publication`, an `--instance-config` and writable filesystem
 `--store`; an existing released stack does not gain this by updating its CLI.
 
@@ -299,8 +305,8 @@ retry the same input and idempotency key to reconcile the original request.
 Use `task list` to discover work, `task status` for scheduling metadata,
 `task result` for the authoritative logical outcome, and `task inspect`,
 `task attempt`, and `task history` for diagnostics. `task cancel` requests
-cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md#run-a-task) for
-complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/develop/docs/task-results.md) for outcome
+cancellation. See the [HTTP quickstart](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/http-orchestration.md#run-a-task) for
+complete examples and the [task result contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/task-results.md) for outcome
 semantics.
 
 ```sh
@@ -341,12 +347,12 @@ The saved decision includes `scope`, `workflow_id`, `key`, `activation_id`,
 `revision`, `action`, `decision_id`, `decision`, `reviewer`, and `reason`.
 After an uncertain response, retry the identical file to reconcile that
 decision. Generic events cannot approve actions. See
-[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/workflow-approvals.md#cli-and-http)
+[durable approvals](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/workflow-approvals.md#cli-and-http)
 for the complete contract and examples.
 
 ## MCP
 
-Ledgence 0.9.0 builds enable the optional `mcp` feature by default.
+Ledgence 0.10.2 builds enable the optional `mcp` feature by default.
 `ledgence mcp serve --server URL --tenant ID --namespace NAME` connects an MCP
 client over stdio to that API. Add `--read-only` for observation only.
 Scope is fixed for the session. Submissions require caller-supplied idempotency
@@ -361,7 +367,7 @@ Earlier 0.2.0 binaries do not include this command.
 
 ## Instance access
 
-Use scoped credentials with matching 0.9.0 components. The
+Use scoped credentials with matching 0.10.2 components. The
 [instance access guide](/how-to/configure-instance-access) covers provisioning,
 Console identity, client files, capabilities, rotation and operating limits.
 
@@ -377,7 +383,7 @@ Use `ledgence audit list` for bounded scoped pages or `ledgence audit approval` 
 
 ## Retained effect evidence
 
-The 0.9.0 CLI and server provide the `effect` group. These commands read retained
+The 0.10.2 CLI and server provide the `effect` group. These commands read retained
 records without invoking a program or authorizing another external action.
 
 ```sh
@@ -407,7 +413,7 @@ when the page is shorter than `--limit`; entries are never truncated. One JSON
 response goes to stdout, diagnostics to stderr; there are no implicit retries.
 The evidence distinguishes authenticated worker reports from unattributed legacy
 records. Neither proves provider truth or permits redispatch. Native effect
-resolution is not part of these commands. [Effect evidence contract](https://github.com/Ledgence/ledgence/blob/develop/docs/effect-evidence.md).
+resolution is not part of these commands. [Effect evidence contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/effect-evidence.md).
 
 
 <span id="submit-an-operator-effect-assessment-in-development"></span>
@@ -423,7 +429,7 @@ ledgence effect resolve --server http://127.0.0.1:8080 \
   --file effect-assessment.json
 ```
 
-This requires matching 0.9.0 CLI/server components and `effect_resolve`. The CLI
+This requires matching 0.10.2 CLI/server components and `effect_resolve`. The CLI
 checks the original canonical endpoint and scope, then
 sends the exact frozen body once. The envelope is at most 1 MiB, body 256 KiB.
 The file contains sensitive reviewed action/result data but no credential. There
@@ -433,7 +439,7 @@ or actors conflict. A metadata receipt proves audited acceptance, not workflow
 resumption or provider truth. It never redispatches an effect.
 
 `effect inbox --filter disputed` selects current assessment conflict, separately
-from historical `discrepant` reports. See the [full saved-command contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#submit-a-saved-operator-assessment).
+from historical `discrepant` reports. See the [full saved-command contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/cli.md#submit-a-saved-operator-assessment).
 
 <span id="provider-recovery-in-development"></span>
 
@@ -444,20 +450,20 @@ scope and credential options as other Effects commands. Accepted provider
 filters are `all`, `pending`, `needs_review`, `succeeded`, `failed`, `cancelled`
 and `disputed`; keep the ordinary `--filter all`. `effect inspect` includes
 provider binding, typed reports and finite reconciliation metadata. These
-options require matching 0.9.0 components.
+options require matching 0.10.2 components.
 
 `ledgence orchestrator serve --provider-config FILE` requires access and instance
 configurations. The versioned file binds the exact installation audience and
 chooses `enabled` or `declared_restore_quarantine`; omitting it disables provider
 operations. It contains no provider credentials. See the
 [recovery guide](/how-to/recover-provider-operations) and
-[complete CLI policy format](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#provider-operation-recovery-in-development).
+[complete CLI policy format](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/cli.md#provider-operation-recovery-in-development).
 
 <span id="resource-commands-in-development"></span>
 
 ## Resource commands
 
-Ledgence 0.9.0 adds `resource list|inspect|decisions|put`,
+Ledgence 0.10.2 provides `resource list|inspect|decisions|put`,
 `admission inspect|release` and `orchestrator serve --admission-config FILE`.
 Mutations require `resource_control` and a destination-bound saved command.
 `mcp serve --allow-resource-control` separately opts into policy/release tools.
@@ -466,9 +472,9 @@ policy; choose only one of `--resource`, `--task` or `--workflow`. Admission
 release and inspection events use `--workflow WORKFLOW_ID` for workflow operations
 or `--task TASK_ID` for standalone tasks.
 The existing credential, scope, limit and cursor options apply.
-Use matching 0.9.0 components. [Guide](/how-to/control-resource-capacity).
+Use matching 0.10.2 components. [Guide](/how-to/control-resource-capacity).
 
-With 0.9.0 components, `ledgence admission inspect` accepts `--task ID
+With 0.10.2 components, `ledgence admission inspect` accepts `--task ID
 --generation N` instead of a workflow occurrence. The same `admission release`
 command accepts a source-bound saved task release. [Task resource admission](/how-to/control-resource-capacity#apply-the-resource-to-a-single-task).
 
@@ -478,7 +484,7 @@ command accepts a source-bound saved task release. [Task resource admission](/ho
 
 `ledgence worker connect --poll-plan FILE` selects among integrated HTTP or SQS Standard queues
 with weighted Stride or lottery. Supply it instead of `--queue`; use a matching
-0.9.0 build. For SQS, add `--delivery-config FILE` with exactly the plan’s queue names. A multi-queue SQS plan defaults to a one-second receive wait. [Configuration and live reload](/how-to/share-worker-polls).
+0.10.2 build. For SQS, add `--delivery-config FILE` with exactly the plan’s queue names. A multi-queue SQS plan defaults to a one-second receive wait. [Configuration and live reload](/how-to/share-worker-polls).
 
 <span id="queue-concurrency-in-development"></span>
 
@@ -488,7 +494,7 @@ Limit outstanding attempts across worker replicas, independently of each worker�
 
 Use `ledgence resource sources --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--state possibly_dispatched|unknown_occupied] [--cursor CURSOR] [--limit 1..100]` to discover charged occurrences. Each page requires `sensitive_read` and a committed response audit. Pass `next_cursor` back through `--cursor` for the same resource and state. [Investigate unknown occupancy](/how-to/control-resource-capacity#find-the-source-of-unknown-occupancy).
 
-In Ledgence 0.9.0, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
+In Ledgence 0.10.2, `ledgence resource decisions --server URL --credentials-file FILE --tenant ID --namespace NAME --name RESOURCE [--before SEQUENCE] [--limit 1..100]` reads weighted offers newest first. Use the returned `next` as the next exclusive cursor. This metadata operation requires `metadata_read`.
 
 <span id="inspect-a-shared-run-budget-development"></span>
 
@@ -496,17 +502,19 @@ In Ledgence 0.9.0, `ledgence resource decisions --server URL --credentials-file 
 
 Read `ledgence budget inspect --server URL --credentials-file FILE --tenant ID --namespace NAME --workflow ID`. Replace `--workflow ID` with `--task ID` for a task. `ledgence budget entries` takes the same scope and subject; pass `--before SEQUENCE` to follow the returned cursor. Both require `metadata_read`.
 
-## Execution files in development
+<span id="execution-files-in-development"></span>
 
-Matching development components add `ledgence artifacts put`, `inspect`, `list`,
+## Execution files
+
+Matching 0.10.2 components provide `ledgence artifacts put`, `inspect`, `list`,
 `download`, `status`, `reconcile` and `replace`. These are separate from program
 package publication and require a configured execution store. `put` accepts a
 file and stable key attached to an existing task/workflow; `download` verifies
 bytes and never overwrites a local destination. Uncertain uploads have explicit
 status, reconciliation and revision-bound replacement commands.
 
-Use `ledgence artifacts --help` in the development CLI and see the
+Use `ledgence artifacts --help` in the installed CLI and see the
 [file-sharing guide](/how-to/share-execution-files) or
-[exact CLI contract](https://github.com/Ledgence/ledgence/blob/develop/docs/cli.md#execution-files-development-source).
-This surface is not included in published 0.9.0. Source builds can add the optional
+[exact CLI contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/cli.md#execution-files-development-source).
+Source builds can add the optional
 `s3-artifacts` feature independently of SQS transport.

@@ -5,7 +5,7 @@ description: Understand the Console deployment boundary, program catalog, and di
 
 A self-hosted Ledgence installation is one operating environment. Console's destinations include **Executions** for task and workflow history, **Programs** for registered immutable packages, **Approvals** for workflow requests, **Effects** for external-action evidence, **Workers** for process observations, **Queues** for concurrency policies, and **Resources** for shared admission capacity. Available destinations and actions depend on the instance's capabilities and operator access. There is no tenant administration, workspace switcher, or organization model to configure.
 
-Console is included in Ledgence 0.9.0. The [Console tutorial](/tutorials/use-console) explains how to start a matching deployment; the historical 0.1 releases predate it.
+Console is included in Ledgence 0.10.2. The [Console tutorial](/tutorials/use-console) explains how to start a matching deployment; the historical 0.1 releases predate it.
 
 ## The interface belongs to the instance
 

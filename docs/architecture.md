@@ -217,7 +217,9 @@ A single physical worker still owns one concurrency budget; its queue sessions
 carry the backend identities needed for retries. Resource admission is evaluated
 separately.
 
-## Execution progress (development source)
+<span id="execution-progress-development-source"></span>
+
+## Execution progress
 
 `ExecutionProgressReader` is an optional, complete metadata read capability on
 the task service/store. The application validates its replies; the HTTP adapter
@@ -229,7 +231,9 @@ coordinator coalesces bounded positive waits while storage reads remain immediat
 no worker or idle database transaction is reserved for observation. Console uses
 the same reader through its fixed-scope, metadata-authorized route. [Contract](execution-progress.md).
 
-## Execution files in development
+<span id="execution-files-in-development"></span>
+
+## Execution files
 
 The [execution artifact capability](execution-artifacts.md) separates catalog
 transactions (PostgreSQL), authority and transfer orchestration (service), byte

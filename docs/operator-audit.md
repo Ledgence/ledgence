@@ -1,6 +1,6 @@
 # Operator audit
 
-Available in Ledgence 0.9.0 with credentials enabled. Existing operator-trusted
+Available in Ledgence 0.10.2 with credentials enabled. Existing operator-trusted
 installations keep their deployment access boundary.
 
 Native credential mode records verified approval and effect-assessment acceptance
@@ -60,7 +60,7 @@ instance scope, including other operators' identities and resource references.
 The feed is available with configured credential authority. Operator-trusted
 mode has no verified actor to authorize this feed.
 
-Read a bounded page with the 0.9.0 CLI.
+Read a bounded page with the 0.10.2 CLI.
 
 ```sh
 ./target/debug/ledgence audit list \
@@ -178,7 +178,7 @@ and durable read observation through generic and Console aliases.
 
 ## Resource admission audit
 
-Matching 0.9.0 builds add `resource_policy_accepted`, `admission_released`
+Matching 0.10.2 builds include `resource_policy_accepted`, `admission_released`
 and `task_admission_released`. Policy events
 record the resource name, request ID, accepted revision, policy digest and
 operator reason. Release events record the original admission occurrence,
@@ -209,9 +209,11 @@ follow the existing observation-retention lane. See
 interfaces and [retention](retention.md#retained-admission-usage-in-development)
 for the independent admission journal's lifetime.
 
-## Execution file downloads in development
+<span id="execution-file-downloads-in-development"></span>
 
-Matching development components beyond 0.9.0 record `artifact_download` sensitive
+## Execution file downloads
+
+Matching 0.10.2 components record `artifact_download` sensitive
 responses with an artifact resource containing its `artifact_id` and canonical
 `root` (`kind` and `id`). The catalog applies current authorization and retained
 root checks before bytes are released. Metadata browsing does not fetch or audit

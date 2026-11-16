@@ -3,10 +3,10 @@ title: Share files between execution steps
 description: Save an execution file, pass its immutable reference, and download it deliberately.
 ---
 
-**Development source for the next release; not available in 0.9.0.** Use matching
-server, worker, CLI and Python packages from this checkout. The released local
-stack does not yet enable this feature. Your operator must configure a fixed
-instance and an execution file store; configuration is explained below.
+**Available in Ledgence 0.10.2.** Use matching server, worker, CLI and Python
+packages. New 0.10.2 local kits configure persistent filesystem execution storage;
+existing saved kits are not changed by a CLI update. Other deployments need a
+fixed instance and an execution file store; configuration is explained below.
 
 Suppose a task produces a report that another step or a person needs. Keep the
 file in the execution store and return a small reference. The reference records
@@ -101,7 +101,7 @@ A network timeout can mean an upload succeeded without its acknowledgement
 arriving. Preserve its upload/selection information, inspect status, and explicitly
 reconcile it. Reconciliation verifies stored bytes without resending them. Explicit
 revision-bound replacement is available when eligible; an old request timing out
-does not prove that request stopped. See the [full recovery contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#uncertain-uploads-and-recovery).
+does not prove that request stopped. See the [full recovery contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/execution-artifacts.md#uncertain-uploads-and-recovery).
 
 ## Configure the instance
 
@@ -121,7 +121,7 @@ existing `ledgence orchestrator serve` command alongside its `--instance-config`
 Paths resolve next to the JSON file. Store bytes on persistent local storage;
 this filesystem mode supports one orchestrator. The normal program `--store` is
 separate and does not enable execution files. An optional `s3-artifacts` build
-supports a server-owned S3-compatible store; see [storage configuration](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#configure-storage).
+supports a server-owned S3-compatible store; see [storage configuration](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/execution-artifacts.md#configure-storage).
 
 Files are limited to 64 MiB, with at most 120 seconds for transfer IO and shorter
 limits when the worker's attempt is ending. One orchestrator admits two uploads
@@ -139,18 +139,18 @@ before the server first opens it; an early open generates a marker rejected by
 the restored catalog. Its directory path may change while that identity remains
 fixed. Temporary spools and worker caches are not backups. S3 identity binds
 endpoint, region, bucket and prefix, so a cross-bucket copy is not a transparent
-restore. Read the [operational contract](https://github.com/Ledgence/ledgence/blob/develop/docs/execution-artifacts.md#retention-and-backup)
+restore. Read the [operational contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/execution-artifacts.md#retention-and-backup)
 and [0.10 upgrade procedure](/how-to/upgrade-to-0-10) before enabling this in an
 existing installation.
 
 A transfer deadline releases local download ownership and starts temporary-file
 cleanup. It does not force a network connection closed. A client that stops
 reading can prolong the server's graceful shutdown; see the
-[HTTP shutdown contract](https://github.com/Ledgence/ledgence/blob/develop/docs/http-orchestration.md)
+[HTTP shutdown contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/http-orchestration.md)
 for the separate force-exit procedure.
 
 ## Try the complete example
 
-The [report workflow example](https://github.com/Ledgence/ledgence/tree/develop/examples/execution-artifacts)
+The [report workflow example](https://github.com/Ledgence/ledgence/tree/v0.10.2/examples/execution-artifacts)
 contains the producer, consumer and workflow together. It uses separate worker
 processes and requires no model API key or framework-specific integration.

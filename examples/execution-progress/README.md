@@ -1,14 +1,14 @@
 # Reopen an execution's progress
 
-**Development source for the next release; not included in 0.9.0.** Use a server
-and Python client built from this checkout. No model account, new program or
-additional Python dependency is required. Start the matching source-built stack
-using the [HTTP deployment guide](../../docs/http-orchestration.md).
+**Available in Ledgence 0.10.2.** Use matching server and Python client versions.
+No model account, new program or additional Python dependency is required.
+Start the released local stack with [the installation guide](../../docs/installation.md),
+or use the [HTTP deployment guide](../../docs/http-orchestration.md) for a source deployment.
 
-In an activated development virtual environment, install this checkout's client:
+In an activated application virtual environment, install the matching client:
 
 ```sh
-python -m pip install ./sdk/python-client
+python -m pip install "ledgence-client==0.10.2"
 ```
 
 Open [`follow.py`](follow.py) in your editor. It reads an existing task or workflow,

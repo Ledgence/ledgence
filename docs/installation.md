@@ -2,12 +2,11 @@
 
 Start with [Choose a local installation](https://docs.ledgence.com/getting-started/installation).
 Choose one route; each gives you an API, Console, PostgreSQL and a Python worker.
-The guides target the published **Ledgence 0.9.0** release.
+The guides target the published **Ledgence 0.10.2** release.
 
-Current source is the **0.10.2 candidate**, with separate
-[release notes](releases/0.10.2.md) and
-[upgrade preparation](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
-It is not yet the verified distribution selected by the installation paths below.
+Read the [0.10.2 release notes](releases/0.10.2.md) for new capabilities and
+operating limits. Existing installations should follow the
+[0.9-to-0.10 upgrade guide](../docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
 
 ## Choose what to install
 
@@ -49,7 +48,7 @@ This installs the CLI and its matching kit, not Docker or application dependenci
 ## Pin a version or use a custom installation
 
 Use the [installer options](https://docs.ledgence.com/how-to/install-native#shell-setup-and-installer-options)
-for exact versions and custom prefixes. The tutorials use 0.9.0 components.
+for exact versions and custom prefixes. The tutorials use 0.10.2 components.
 For manual checksums and archive extraction, follow
 [manual native installation](https://docs.ledgence.com/how-to/manual-native-installation).
 
@@ -137,7 +136,7 @@ ledgence local up
 
 `down` stops the services while preserving data. `up` reuses the saved kit,
 image and configuration. Installing a new CLI does not upgrade a saved stack.
-New development kits configure a durable `execution-artifacts` volume; old saved
+New 0.10.2 kits configure a durable `execution-artifacts` volume; old saved
 kits remain unchanged. Back up every configured durable store, including its
 hidden filesystem identity marker, with the database and configuration. Restore
 the complete execution store before any process first opens its target directory;
@@ -176,7 +175,7 @@ For an existing application that submits work, add the client to that applicatio
 environment with its package manager. For a uv project:
 
 ```sh
-uv add "ledgence-client==0.9.0"
+uv add "ledgence-client==0.10.2"
 ```
 
 The [client README](../sdk/python-client/README.md) and
@@ -188,7 +187,7 @@ optional tracing and the API. Installing a client does not start a server or wor
 For an existing Python program project:
 
 ```sh
-uv add --dev "ledgence-worker==0.9.0"
+uv add --dev "ledgence-worker==0.10.2"
 ```
 
 The helper provides `ledgence.worker` imports and types for your editor and

@@ -36,20 +36,13 @@ and [worker helper](sdk/python/README.md) separately; those packages do not star
 a Ledgence instance. Detailed installation options are in
 [the installation guide](docs/installation.md).
 
-**Ledgence 0.9.0** lets tasks and workflows share named capacity across workers, gives eligible queues weighted turns, and lets a root bound calls and delegations across its owned runs. A worker can poll multiple queues while each queue enforces its own cluster-wide concurrency policy.
-The CLI, Console, Python packages and Rust API crates share version **0.9.0**.
+**Ledgence 0.10.2** adds resumable execution progress, immutable execution files, optional agent-framework adapters and a larger program-package profile. Tasks and workflows retain shared resource capacity, run budgets, weighted queue offers, worker poll plans and cluster-wide queue limits.
+The CLI, Console, Python packages and Rust API crates share version **0.10.2**.
 Native bundles target Linux x86_64 with glibc 2.39 or newer (qualified on Ubuntu 24.04) and macOS arm64 and include a matching
 local Compose kit. The container runtime supports Linux amd64 and arm64.
-See the [release notes](docs/releases/0.9.0.md) and the
-[PostgreSQL upgrade procedure](docs/postgres.md#upgrade-from-080-to-090).
+See the [release notes](docs/releases/0.10.2.md) and the
+[0.9-to-0.10 upgrade procedure](docs-site/src/content/docs/how-to/upgrade-to-0-10.md).
 Before 1.0, pin component versions and review the changes before upgrading.
-
-**0.10.2 candidate:** current source adds resumable lifecycle progress, immutable
-execution files, three optional agent-framework adapters and an expanded program
-package profile. These are not in the verified 0.9.0 downloads above. Read the
-[candidate release notes](docs/releases/0.10.2.md) and
-[0.9 to 0.10 upgrade preparation](docs-site/src/content/docs/how-to/upgrade-to-0-10.md)
-before evaluating matching candidate components.
 
 The historical native `v0.1.0` and source/package `v0.1.1` releases retain their
 original commands and do not include Console.
@@ -61,7 +54,7 @@ From a recorded local step in the workflow graph or trace, open the
 [operation inspector](docs/agent-recovery.md#inspect-an-accepted-operation) to see
 the arguments, accepted result and worker attempt that recorded it.
 
-Ledgence 0.9.0 workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
+Ledgence 0.10.2 workflows can also [protect an approved external write](docs/workflow-approvals.md#protect-an-approved-external-write).
 `request_effect_approval` declares its execution contract before approval and
 requires the protected helper for that occurrence.
 After a worker crash, a replacement can look up a refund without issuing it a
@@ -82,23 +75,23 @@ to the inspected revision and exact approved action. Workflows can park with
 slot serves other work. See the [effect-resolution contract](docs/effect-evidence.md)
 for prerequisites, retries and handling of later conflicting evidence.
 
-Matching 0.9.0 components add [provider operations](docs/provider-operations.md).
+Matching 0.10.2 components support [provider operations](docs/provider-operations.md).
 Registered adapters bind the reviewed business identity, target and request to a
 single dispatch grant. Workflows park while bounded read-only probes recover
 pending or uncertain outcomes. The Effects view exposes the policy, reports and
 operator handling. Try the [local asynchronous export example](examples/provider-recovery/README.md).
 
-The development source also adds [execution files](docs/execution-artifacts.md):
+Ledgence 0.10.2 includes [execution files](docs/execution-artifacts.md):
 store bounded reports or other outputs separately from JSON, pass immutable
 references between steps, and inspect metadata or explicitly download in Console.
-This capability requires matching development components and configured storage;
-it is not part of the published 0.9.0 packages.
+This capability requires matching components and configured storage. New 0.10.2
+local kits configure persistent filesystem storage; existing saved kits remain unchanged.
 
-The development source also includes optional [PydanticAI, Google ADK and Claude
+Ledgence 0.10.2 also includes optional [PydanticAI, Google ADK and Claude
 Agent SDK adapters](docs/agent-integrations.md). PydanticAI and ADK replay accepted
 model/read-tool operations; Claude replays an accepted whole external-agent run.
 Applications own their SDKs, models and credentials. These bounded profiles require
-matching development workers and are not in published 0.9.0 packages. Start with
+matching workers and application-prepared SDK dependencies. Start with
 the [shared framework examples](examples/framework-integrations/README.md).
 
 ### Install and start Ledgence
@@ -196,7 +189,7 @@ lives beside the implementation so documentation can evolve with the code.
 
 ## Create a Python program
 
-Start a minimal Python application with the installed Ledgence 0.9.0 CLI,
+Start a minimal Python application with the installed Ledgence 0.10.2 CLI,
 Python 3.11 or newer and uv. Run these commands in your application workspace:
 
 ```sh
@@ -291,7 +284,7 @@ collapsible sidebar and light, dark or system appearance keep the same operator
 views usable across screen sizes. Registered programs and worker process slots
 connect package identity and observed capacity to the work you are inspecting.
 
-Console ships in the 0.9.0 native bundles and the published container runtime.
+Console ships in the 0.10.2 native bundles and the published container runtime.
 The [source Compose deployment](docs/local-deployment.md) remains available.
 Publish and register the local examples, then open `http://127.0.0.1:8080/console/`. The
 [guided tutorial](https://docs.ledgence.com/tutorials/use-console) walks through
@@ -340,11 +333,13 @@ retry keeps the original queue. For SQS, pair the plan with a [delivery configur
 
 Set a cluster-wide maximum for one queue while other queues continue operating. Change or pause it from Console, HTTP, CLI, Python or MCP. PostgreSQL reserves a slot with each assignment and retains uncertain attempts until confirmed cleanup, explicit operator release or an optional timeout with grace. [Configure and recover a queue limit](docs/queue-concurrency.md).
 
-## Execution progress (development source)
+<span id="execution-progress-development-source"></span>
 
-The next release adds [resumable lifecycle pages](docs/execution-progress.md) for
-one task or workflow. Matching development server/client builds can follow pages
+## Execution progress
+
+Ledgence 0.10.2 provides [resumable lifecycle pages](docs/execution-progress.md) for
+one task or workflow. Matching server/client components can follow pages
 with Python or the CLI, save a cursor and reconnect without resubmitting work.
 Bounded server waits share reads between observers; Console adds a live lifecycle
-history. MCP provides a bounded read. These methods are not included in published 0.9.0 assets.
+history. MCP provides a bounded read.
 [Try the example](examples/execution-progress/README.md).

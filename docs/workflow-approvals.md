@@ -7,7 +7,7 @@ durable local step. No model SDK or hosted service is required.
 
 This capability is included in Ledgence 0.3.1. Use matching worker,
 orchestrator, Python client, and Console versions and apply all migrations with
-`ledgence orchestrator migrate`. Ledgence 0.9.0 uses Console contract 14.
+`ledgence orchestrator migrate`. Ledgence 0.10.2 uses Console contract 16.
 Upgrade server and assets together from the historical 0.7.0 contract 5.
 Follow the [0.3 upgrade guide](upgrading-to-0.3.md) before replacing a 0.2 deployment.
 
@@ -76,9 +76,9 @@ reconcile that uncertainty; this API does not guarantee exactly-once effects.
 
 ## Protect an approved external write
 
-**Available in Ledgence 0.9.0.** The published 0.7.0 helper provides
+**Available in Ledgence 0.10.2.** The published 0.7.0 helper provides
 `approved_local`. To use `approved_effect`, stop the old workers and server,
-apply the orchestrator migration, and run matching 0.9.0 builds of the
+apply the orchestrator migration, and run matching 0.10.2 builds of the
 server, worker and Python helper. An approval that was already granted before
 the migration is lookup-only: the old runtime may already have sent the write.
 
@@ -104,7 +104,7 @@ decision. Changing or removing it conflicts with the reviewed request.
 `ctx.approval.protection` exposes `ApprovalProtection.EXTERNAL_EFFECT`. For this
 occurrence, `approved_local` rejects execution before calling the function,
 including cached replay. The backend also rejects an ordinary local-result
-commit before any dispatch grant has been issued. Use matching 0.9.0
+commit before any dispatch grant has been issued. Use matching 0.10.2
 clients to inspect and decide this newly typed request.
 
 Existing `request_approval` requests retain their untagged representation and
@@ -161,11 +161,11 @@ same business request. Cancellation cannot retract an issued grant. The
 callback is responsible for validating the provider's receipt. The stored
 attempt IDs identify who obtained dispatch permission and who confirmed the
 result. The IDs alone cannot establish which callback produced a receipt.
-Matching authenticated 0.9.0 workers additionally retain a verified worker
+Matching authenticated 0.10.2 workers additionally retain a verified worker
 claim and the callback mode reported by the helper. The evidence timeline
 survives collection of confirmed execution history. See the
 [retained evidence contract](effect-evidence.md) for negotiation, inspection and
-legacy provenance. Matching 0.9.0 components also support the native
+legacy provenance. Matching 0.10.2 components also support the native
 operator rendezvous below; published 0.7.0 does not include it.
 [Retention and upgrade behavior](retention.md#unresolved-approved-writes)
 

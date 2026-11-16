@@ -3,7 +3,7 @@ title: Limit a queue across workers
 description: Set, inspect and recover a cluster-wide concurrency limit for one logical queue.
 ---
 
-**Available in Ledgence 0.9.0.** Use matching 0.9.0 builds of the orchestrator, workers and Console (contract C14), run the database migrations and configure instance credentials.
+**Available in Ledgence 0.10.2.** Use matching 0.10.2 builds of the orchestrator, workers and Console (contract C16), run the database migrations and configure instance credentials.
 
 Suppose the payment gateway can serve five requests concurrently. Put gateway tasks on the `payments` queue and set its limit to five. Three workers with four consumers each can then have at most five outstanding attempts on that queue between them. A queue such as `email` keeps its own policy. Workers can continue to poll it while `payments` is full.
 

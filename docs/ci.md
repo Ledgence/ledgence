@@ -129,7 +129,9 @@ digest and verifies cleanup and credential removal in retained evidence.
 Console also tests frozen assessments, permission boundaries, exact audit lookup
 and graph navigation in Chromium and WebKit.
 
-## Provider-operation recovery in development
+<span id="provider-operation-recovery-in-development"></span>
+
+## Provider-operation recovery
 
 The independent `provider` acceptance suite runs all twelve scenario families in
 `tools/check-provider-operations.py`, with an installed current client and the
@@ -169,9 +171,11 @@ including ordinary-path provider-table lock checks and indexed reconciliation
 query tests. Those structural bounds and synthetic scenarios do not establish
 production provider throughput or universal idempotency guarantees.
 
-## Execution files in development
+<span id="execution-files-in-development"></span>
 
-Beyond stable 0.9.0, the independent `artifacts` acceptance suite checks isolated
+## Execution files
+
+For 0.10.2, the independent `artifacts` acceptance suite checks isolated
 feature combinations, then runs `tools/check-execution-artifacts.py` with the
 same-run all-feature executable and installed Python client. Its framework-neutral
 example uses separate producer/consumer workers and a workflow. Checks include

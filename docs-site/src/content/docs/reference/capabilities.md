@@ -3,7 +3,7 @@ title: Capabilities and availability
 description: Find published Ledgence capabilities, setup guides and operating limits.
 ---
 
-**0.9.0 is the current published release.** This page maps its capabilities to
+**0.10.2 is the current published release.** This page maps its capabilities to
 user guides and operating limits. The installer, native bundles, Python client,
 worker helper, Rust API crates, container images, and local kit belong to the
 same release.
@@ -13,7 +13,7 @@ then [Run your first task](/tutorials/first-task). This page is a feature map.
 
 ## Program authoring
 
-The 0.9.0 CLI creates functional task and workflow projects with both
+The 0.10.2 CLI creates functional task and workflow projects with both
 `ledgence-worker` and `ledgence-client` pinned as development dependencies.
 
 | Capability | Where to start |
@@ -25,12 +25,12 @@ building, publishing and execution remain explicit operations.
 
 ## Execution and composition
 
-| Capability in 0.9.0 | Where to start |
+| Capability in 0.10.2 | Where to start |
 | --- | --- |
 | Package Python code with prepared dependencies; fetch and cache immutable artifacts on demand. | [Register a program](/how-to/register-agent) |
 | Reuse a bounded process pool across programs, with one concurrency setting. | [Execution model](/concepts/execution-model) |
 | Submit tasks and workflows, inspect status/results, and request cancellation. | [Python client](/reference/python-client) and [CLI](/reference/cli) |
-| Find tasks by state, queue, business correlation and submission time, using bounded pagination. | [Task discovery contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/task-discovery.md) |
+| Find tasks by state, queue, business correlation and submission time, using bounded pagination. | [Task discovery contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/task-discovery.md) |
 | Compose workflows using typed entrypoints, explicit local steps, distributed tasks and owned subworkflows. | [Your first workflow](/tutorials/first-workflow) and [workflow context](/reference/workflow-context) |
 | Fork independently checkpointed branches, perform local work, and join selected branches. | [Mix local work and branches](/how-to/fork-workflow-branches) |
 | Suspend for tasks, timers or external events and resume without retaining a waiting worker process. | [Wait for an event](/how-to/wait-for-event) |
@@ -40,19 +40,19 @@ building, publishing and execution remain explicit operations.
 
 ## Inspection and integrations
 
-| Capability in 0.9.0 | Where to start |
+| Capability in 0.10.2 | Where to start |
 | --- | --- |
 | Browse Programs, Executions, Approvals, Effects, Workers, Resources and Queues in the self-hosted Console. | [Explore Console](/tutorials/use-console) |
 | Inspect a workflow's recorded graph or trace view, and navigate into child executions. | [Console reference](/reference/console) |
 | Inspect and decide persisted approvals in Console, through the client or with the CLI. | [Require approval](/how-to/require-approval) |
-| Connect an MCP host through stdio. With audit configured, the native catalog exposes 30 tools by default and 25 in read-only mode. Effect resolution alone exposes 31 tools, resource control alone exposes 35, and enabling both exposes 36. | [Connect an MCP client](/how-to/connect-mcp) |
+| Connect an MCP host through stdio. With audit configured, the native catalog exposes 33 tools by default and 28 in read-only mode. Effect resolution alone exposes 34 tools, resource control alone exposes 38, and enabling both exposes 39. | [Connect an MCP client](/how-to/connect-mcp) |
 | Export optional OTLP HTTP/protobuf traces and metrics, and write correlated Python logs. | [Configure observability](/how-to/configure-observability) |
 | Use integrated HTTP acquisition or the optional SQS Standard / ElasticMQ adapter. | [Queue delivery](/concepts/queue-delivery) |
 | Implement custom Rust ports and adapters without exposing provider SDK types in core contracts. | [Rust API packages](/reference/releases#rust-adapter-contracts) |
-| Preview and apply scoped, bounded retention cleanup after at least 90 days of terminal retention. | [Retention contract](https://github.com/Ledgence/ledgence/blob/v0.9.0/docs/retention.md) |
+| Preview and apply scoped, bounded retention cleanup after at least 90 days of terminal retention. | [Retention contract](https://github.com/Ledgence/ledgence/blob/v0.10.2/docs/retention.md) |
 
 Provider clients and agent frameworks belong to application packages. The
-[example catalog](https://github.com/Ledgence/ledgence/blob/develop/examples/README.md)
+[example catalog](https://github.com/Ledgence/ledgence/blob/v0.10.2/examples/README.md)
 includes framework-free workflow patterns, a Google ADK/Gemini support agent,
 Codex workflows, durable approvals and operation recovery. Model access is a
 prerequisite of the corresponding live example, not of Ledgence self-hosting.
@@ -73,7 +73,7 @@ scope. Console, CLI, Python and MCP share the same deadline-ordered listing.
 
 ## Approved external writes
 
-A workflow using the 0.9.0 helper can declare a protected action before
+A workflow using the 0.10.2 helper can declare a protected action before
 approval, authorize one dispatch, restrict later attempts to receipt lookup and
 keep unresolved evidence past the ordinary retention period. Its saved contract
 rejects execution through the ordinary approval helper.
@@ -94,7 +94,7 @@ current actor. Existing operator-trusted deployments keep their access boundary.
 
 ## External-effect evidence
 
-Matching 0.9.0 components retain approved effect occurrences, authenticated
+Matching 0.10.2 components retain approved effect occurrences, authenticated
 worker claims and reported results independently of execution history. Inspect
 unconfirmed or discrepant cases through the API, CLI, Python, MCP and Console. Sensitive
 inspection requires credentials and durable audit. Historical imports retain
@@ -111,7 +111,7 @@ explicit retry. Workflows can wait durably for the assessment, release their
 worker slot and resume at a registered entrypoint with a typed outcome. Console
 shows retained evidence and links native waits to the original effect occurrence.
 Later conflicting worker reports remain visible, including after execution
-records are collected. Matching 0.9.0 components, credentials, operator
+records are collected. Matching 0.10.2 components, credentials, operator
 audit and database migrations are required.
 [Inspect and resolve effects](/how-to/inspect-effects).
 
@@ -119,7 +119,7 @@ audit and database migrations are required.
 
 ## Provider recovery
 
-Matching 0.9.0 components support approval-bound provider operations with
+Matching 0.10.2 components support approval-bound provider operations with
 business and provider deduplication identities, same-package registered adapters,
 a single dispatch grant, bounded read-only probes and typed workflow resumption.
 The Effects view exposes provider knowledge, recovery budget and operator
@@ -131,24 +131,24 @@ quarantine. Use a dedicated matching-worker probe queue.
 
 | Method | Availability |
 | --- | --- |
-| One-line installer with persistent shell setup. | **Published 0.9.0.** [Install the CLI](/how-to/install-native#one-line-installation). |
-| Native archives for Linux x86_64/glibc and macOS Apple silicon. | **Published 0.9.0.** [Manual installation](/how-to/manual-native-installation). |
-| Python client and worker authoring helper on PyPI and two Rust API crates on crates.io. | **Published 0.9.0.** [Package reference](/reference/releases). These do not install the server stack. |
-| Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.9.0.** [CLI-managed installation](/how-to/install-native) or [direct Compose](/how-to/install-compose). |
-| Build the CLI from the released source tag and use the published runtime kit. | **Published 0.9.0 source.** [Compile the CLI](/how-to/build-cli-from-source). |
-| Build the local Docker Compose stack from source. | **Published 0.9.0 source.** [Source tutorial](/tutorials/run-locally). |
-| Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Published 0.9.0 on PyPI.** [Develop Python programs](/how-to/develop-python-programs). Add `ledgence-worker` as a development dependency matching the worker. |
+| One-line installer with persistent shell setup. | **Published 0.10.2.** [Install the CLI](/how-to/install-native#one-line-installation). |
+| Native archives for Linux x86_64/glibc and macOS Apple silicon. | **Published 0.10.2.** [Manual installation](/how-to/manual-native-installation). |
+| Python client and worker authoring helper on PyPI and two Rust API crates on crates.io. | **Published 0.10.2.** [Package reference](/reference/releases). These do not install the server stack. |
+| Docker Hub images for Linux amd64 and arm64, with a matching digest-pinned local kit. | **Published 0.10.2.** [CLI-managed installation](/how-to/install-native) or [direct Compose](/how-to/install-compose). |
+| Build the CLI from the released source tag and use the published runtime kit. | **Published 0.10.2 source.** [Compile the CLI](/how-to/build-cli-from-source). |
+| Build the local Docker Compose stack from source. | **Published 0.10.2 source.** [Source tutorial](/tutorials/run-locally). |
+| Install `ledgence.worker` in an application's environment for imports, editor support and local business-logic tests. | **Published 0.10.2 on PyPI.** [Develop Python programs](/how-to/develop-python-programs). Add `ledgence-worker` as a development dependency matching the worker. |
 
 ## Program preparation and publication
 
-Ledgence 0.9.0 includes explicit Docker preparation for Linux worker
+Ledgence 0.10.2 includes explicit Docker preparation for Linux worker
 runtimes, immutable HTTP artifact uploads and saved retry receipts. Optional
 subsequent registration is bound to the exact uploaded descriptor. The existing
 filesystem publication path remains supported. See [Build and publish Python
 programs](/how-to/build-and-publish-programs) for prerequisites, configuration,
 limits and interrupted-operation recovery.
 
-These features require matching 0.9.0 CLI/server components and explicit server
+These features require matching 0.10.2 CLI/server components and explicit server
 write enablement. They are not silently added to existing saved local kits. Docker belongs to the local builder; prepared ZIP uploads need no
 Docker dependency on the server. Program identity remains global within each
 store, with one artifact per program ID and version; there is no multiarchitecture
@@ -178,24 +178,24 @@ be measured; these features do not establish a production throughput guarantee.
 
 ## Operator audit
 
-Matching 0.9.0 components add verified approval acceptance and durable sensitive-response observations, exposed through API, CLI, Python, MCP and Console. Pending result polling creates no observation rows.
+Matching 0.10.2 components provide verified approval acceptance and durable sensitive-response observations, exposed through API, CLI, Python, MCP and Console. Pending result polling creates no observation rows.
 [Setup, queries and operating limits](/how-to/audit-operators).
 
 <span id="in-development-durable-resource-admission"></span>
 
 ## Durable resource admission
 
-Matching 0.9.0 components add shared capacity and token-bucket policies
+Matching 0.10.2 components provide shared capacity and token-bucket policies
 for registered workflow callbacks. Workflows park without a worker slot, then
 resume under a one-shot Start permission. Accepted results survive worker loss;
 uncertain usage remains occupied. CLI, Python, HTTP and MCP expose policy and
-inspection operations, and Console C14 renders the durable wait/result. Protected
+inspection operations, and Console C16 renders the durable wait/result. Protected
 provider dispatch can share a resource through a combined one-shot grant; its
 call completion remains separate from the provider's business outcome. Recovery
 probes are outside that resource limit. Standalone tasks can require the same
 resource before handler invocation. Resources can give eligible queue groups weighted turns at admission. Console shows committed offers with their reasons. Run budgets bound governed calls and delegations across a root and its owned executions. [Budget guide](/how-to/share-run-budgets). [Guide and limits](/how-to/control-resource-capacity).
 
-Matching 0.9.0 builds let operators edit named-resource policies in Console, inspect decisions and find outstanding sources using the resource name. Aggregate inspection uses `metadata_read`. Listing individual sources requires `sensitive_read` and records a response audit.
+Matching 0.10.2 builds let operators edit named-resource policies in Console, inspect decisions and find outstanding sources using the resource name. Aggregate inspection uses `metadata_read`. Listing individual sources requires `sensitive_read` and records a response audit.
 
 
 <span id="in-development-worker-poll-shares"></span>
@@ -212,30 +212,35 @@ then adjust the weights without interrupting active tasks.
 
 Limit outstanding attempts across worker replicas, independently of each worker’s local poll weights. Inspect occupied and uncertain slots and edit a limit from Console, CLI, HTTP, Python or MCP. [Limit a queue across workers](/how-to/limit-queue-concurrency).
 
-## In development: resumable execution progress
+<span id="in-development-resumable-execution-progress"></span>
 
-Matching development server/client builds expose bounded lifecycle pages for a
+## Resumable execution progress
+
+Matching 0.10.2 server/client components expose bounded lifecycle pages for a
 task or workflow, Python and CLI followers, a live Console lifecycle timeline,
 and an MCP read tool. Cursors support reopening retained history; bounded server
-waits reduce repeated idle reads. This does not add model-token streaming and is
-not available in 0.9.0 distributions.
+waits reduce repeated idle reads. This does not add model-token streaming.
 [Follow an execution](/how-to/follow-execution-progress).
 
-## Execution files in development
+<span id="execution-files-in-development"></span>
 
-The development source beyond published 0.9.0 adds [execution files](/how-to/share-execution-files):
+## Execution files
+
+Ledgence 0.10.2 includes [execution files](/how-to/share-execution-files):
 immutable references for files up to 64 MiB, explicit uncertain-upload recovery,
 filesystem or optional S3 storage, and root-scoped retention. Workers and Python
 clients can upload/download; CLI provides the same operations, Console separates
 metadata from explicit sensitive downloads, and MCP exposes metadata reads only.
-It requires a configured fixed instance and matching development components.
+It requires a configured fixed instance, execution storage and matching components.
 Agent frameworks remain application-owned; none is preferred by this capability.
 
 
-## Agent framework adapters in development
+<span id="agent-framework-adapters-in-development"></span>
 
-Matching development workers add optional PydanticAI, Google ADK and Claude Agent
-SDK integrations. They are not part of published 0.9.0 distributions. Application
+## Optional agent framework adapters
+
+Matching 0.10.2 workers include optional PydanticAI, Google ADK and Claude Agent
+SDK integrations. Application
 packages select and prepare their SDKs; the Rust platform and standard-library
 helper retain no mandatory framework/provider dependency.
 
@@ -253,9 +258,9 @@ not live CLI/provider behavior. Models/tools remain operator-trusted; declared
 pure transforms and read tools have explicit bounds and supported native APIs.
 [Choose a framework profile and prepare its factory](/how-to/agent-frameworks).
 
-The 0.10.2 candidate also negotiates an explicit 8,192-entry application-package
+Ledgence 0.10.2 also negotiates an explicit 8,192-entry application-package
 profile while retaining legacy 4,096-entry behavior. Upgrade every eligible worker
 before publishing larger packages; compatible older packages need no forced
-rebuild. [Prepare the 0.9-to-0.10 upgrade](/how-to/upgrade-to-0-10) for matching
+rebuild. [Upgrade from 0.9 to 0.10](/how-to/upgrade-to-0-10) for matching
 components, artifact-store backups and the migration. The published installation
-paths remain on verified 0.9.0 until all release channels are complete.
+paths use the verified 0.10.2 distributions.

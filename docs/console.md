@@ -9,20 +9,19 @@ The historical `v0.1.1` source tag and `0.1.0` native bundle predate it. The [gu
 walks through startup and real executions. The [public reference](https://docs.ledgence.com/reference/console)
 covers the interface and operational behavior.
 
-**Development source:** Console contract **16** includes bounded live execution
-history and execution file metadata/downloads. It requires matching server and
-assets from the development checkout; published 0.9.0 continues to use contract
-14. See [execution progress](execution-progress.md) and
+Ledgence 0.10.2 uses Console contract **16**, including bounded live execution
+history and execution file metadata/downloads. Use matching server and assets.
+The historical 0.9.0 release retains contract 14. See [execution progress](execution-progress.md) and
 [execution files](execution-artifacts.md).
 
 ## Open the local deployment
 
 Follow [local deployment](local-deployment.md), including the explicit publication
-command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.9.0 includes Executions, Programs, Approvals, Effects and Workers.
+command, then open [Console](http://127.0.0.1:8080/console/). Ledgence 0.10.2 includes Executions, Programs, Approvals, Effects and Workers.
 The supplied demo uses one compatibility binding configured on the
 server. There is no workspace, tenant or namespace selector in the browser.
 
-Console contract **14** includes retained external-effect evidence, operator
+Console contract **16** includes retained external-effect evidence, operator
 assessments and provider recovery. Upgrade the server, workers and assets together
 from the historical 0.7.0 contract **5**.
 
@@ -51,9 +50,9 @@ The browser validates instance identity and contract version before accepting
 responses.
 
 Use **Collapse sidebar** to make room for inspection. Select the Ledgence mark
-to expand it again. In 0.9.0, choose **System**, **Light** or **Dark** with the
-**Appearance** control in the top bar. In 0.9.0, find it in the
-desktop sidebar or beside the navigation links on small screens. **System**
+to expand it again. Choose **System**, **Light** or **Dark** with the
+**Appearance** control in the
+desktop sidebar footer or beside the navigation links on small screens. **System**
 follows your device setting. The browser remembers the choice when local
 storage is available.
 
@@ -142,7 +141,7 @@ for scope, bounds, replay and unavailable-measurement behavior.
 ## Native startup
 
 Build assets explicitly with the pinned toolchain in [Console build guide](https://github.com/Ledgence/ledgence/blob/develop/console/README.md),
-or use the `console/` directory from the matching 0.9.0 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
+or use the `console/` directory from the matching 0.10.2 native bundle. The historical native `0.1.0` bundle has no Console assets. A regular Cargo
 build/test does not run frontend tooling. Create a server-only instance file:
 
 ```json
@@ -167,7 +166,7 @@ cargo run -p ledgence-cli -- orchestrator serve --store /path/to/program-store \
 
 For a newly built native bundle use `bin/ledgence orchestrator serve` and
 `--console-dir /absolute/path/to/bundle/console`. Keep `--instance-config` on every
-startup. In a complete 0.9.0 native bundle, `--instance-config` automatically
+startup. In a complete 0.10.2 native bundle, `--instance-config` automatically
 selects the bundled Console when `--console-dir` is omitted. To run without
 assets, use a source build or a bundle packaged with `--headless`, and omit
 `--console-dir`; the instance binding remains required. A missing,
@@ -176,7 +175,7 @@ The console source manifest and retained notices accompany the assets.
 
 ## Register immutable programs
 
-Ledgence 0.9.0 can prepare and upload programs from the CLI with
+Ledgence 0.10.2 can prepare and upload programs from the CLI with
 [`program build` and `publish --server URL --register`](program-publication.md).
 The Console registration form still registers an existing store reference; it
 does not become a code uploader. Publication must be explicitly enabled on the
@@ -231,7 +230,7 @@ and [query contracts](console-query-model.md).
 
 For an operator-trusted deployment, protect both `/console/`
 and `/v1/` with the same access-controlled TLS proxy for remote access.
-Ledgence 0.9.0 can use [instance credentials](instance-access.md) with a
+Ledgence 0.10.2 can use [instance credentials](instance-access.md) with a
 TLS proxy and an explicit origin. Preserve
 these paths and serve assets/API from the same public origin. Configure that
 exact origin in the server's `allowed_origins`, for example
@@ -252,7 +251,7 @@ No migration deletes or reassigns them. Rollback to an older binary that ignores
 the persisted binding requires an offline plan; never run it concurrently against
 the bound database. Catalog retention is independent of execution-history cleanup.
 
-Ledgence 0.9.0 uses Console contract version 14 with matching server and assets.
+Ledgence 0.10.2 uses Console contract version 16 with matching server and assets.
 The historical 0.7.0 release uses version 5. Nodes include typed invocation, registration, fork-membership,
 terminal-wait and resumption relations from the backend. The browser resolves
 their references to loaded nodes; timestamps do not establish dependencies.
@@ -320,7 +319,7 @@ can differ from a later attempt that reused it. [Operation inspection](agent-rec
 
 ## Credential access
 
-Matching 0.9.0 components support optional installation credentials across
+Matching 0.10.2 components support optional installation credentials across
 API operations, workers and Console. Configure the authority, client credential
 files and capabilities using the [instance access guide](instance-access.md).
 The existing operator-trusted mode requires its deployment access boundary.
@@ -401,13 +400,15 @@ See [retained effect evidence and native waits](effect-evidence.md).
 
 <span id="resource-admission-in-development-c14"></span>
 
-## Resource admission (C14)
+<span id="resource-admission-c14"></span>
+
+## Resource admission (C16)
 
 Console C8 adds native admission waits and accepted-operation nodes. Each wait
 retains its parking entrypoint and original occurrence; accepted callbacks have
 an audited occurrence inspector rather than reading a current-activation local
 journal. Offer/Start alone is readiness/authorization, not evidence of execution.
-The browser and backend must both use C14.
+The browser and backend must both use C16.
 See [resource admission](resource-admission.md).
 
 
@@ -419,7 +420,7 @@ C9 adds a required `subject` to admission wait metadata: `operation` for an
 ordinary registered call, or `provider` with the immutable original provider
 ticket. The wait preserves the approval's original activation even when capacity
 is granted to a later activation. Historical persisted C8 waits are projected as
-ordinary operations; use matching C14 server and browser assets.
+ordinary operations; use matching C16 server and browser assets.
 
 Open an admission wait and choose **Inspect admission record** to load its
 approved arguments and linked dispatch/report evidence through the audited
@@ -433,7 +434,7 @@ does not authorize another dispatch.
 Provider admission does not add a successful local-operation node. The ordinary
 accepted-operation node remains reserved for a committed generic callback
 result; recording a provider Start alone does not prove that its callback ran.
-Deploy matching C14 server and assets together.
+Deploy matching C16 server and assets together.
 
 <span id="standalone-task-admission-development-c14"></span>
 
@@ -452,7 +453,7 @@ certify completion of external work.
 
 ## Cluster-wide queue concurrency
 
-A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C14 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
+A queue policy sets a shared maximum across worker sessions. New attempts reserve a slot through the same PostgreSQL transaction on integrated HTTP and external SQS claim paths. Console C16 exposes **Queues** for credential-bound operators. [Policy semantics, timeouts and operator recovery](queue-concurrency.md).
 
 <span id="resource-offers-development-c14"></span>
 
@@ -476,7 +477,9 @@ A credential with only `sensitive_read` opens **Resources** with a generic insta
 
 On a budgeted workflow or task, open the budget view to inspect its root, calls, delegations, limit refusals and usage observations. Inspecting a child resolves to its root. These metadata reads require authenticated budget support and `metadata_read`.
 
-## Execution files (development source, contract 16)
+<span id="execution-files-development-source-contract-16"></span>
+
+## Execution files (contract 16)
 
 `capabilities.execution_artifacts` is true only for a configured fixed instance
 with an artifact service. General → Artifacts appears on both task and workflow
