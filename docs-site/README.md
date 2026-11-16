@@ -4,7 +4,7 @@ The public documentation at `https://docs.ledgence.com` is a static Astro/Starli
 
 ## Develop and build
 
-Use Node.js 24 or newer (minimum 22.19). From this directory:
+Use Node.js 24 or newer (minimum 22.23.4). From this directory:
 
 ```sh
 npm ci --ignore-scripts
