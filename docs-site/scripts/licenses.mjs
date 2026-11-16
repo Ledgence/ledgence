@@ -3,6 +3,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { parentLicensePath } from './license-parent.mjs';
+import { readInstalledPackages, resolveInstalledPackages, safePackagePath } from './license-inventory.mjs';
 
 const root = process.cwd();
 const checkOnly = process.argv.includes('--check');
@@ -54,7 +56,7 @@ const reviewedToolLicenses = new Map(Object.entries({
 // declarations and attribution, without manufacturing missing legal text. This
 // exception is limited to unmodified tools that are absent from the static site.
 const declarationOnlyTools = new Map([
-  ['am-i-vibing@0.4.0', 'MIT'],
+  ['am-i-vibing@0.5.0', 'MIT'],
   ['process-ancestry@0.1.0', 'MIT'],
   ['piccolore@0.1.3', 'ISC'],
   ['boolbase@1.0.0', 'ISC'],
@@ -66,6 +68,8 @@ if (project.license !== 'MIT' || lock.packages?.['']?.license !== 'MIT') {
   throw new Error('Ledgence-owned code must retain its MIT license.');
 }
 if (lock.lockfileVersion !== 3) throw new Error('Review the license collector before changing lockfile format.');
+const installedManifests = readInstalledPackages(root);
+const { installedPaths, actualPackages } = resolveInstalledPackages(lock.packages, installedManifests);
 const ownLicense = readFileSync(join(root, 'LICENSE'));
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const errors = [];
@@ -74,11 +78,6 @@ const files = new Map([['LEDGENCE-LICENSE.txt', ownLicense]]);
 
 function assertLicense(license, label) {
   if (!allowed.has(license) && reviewedToolLicenses.get(label) !== license) errors.push(`${label}: unreviewed or disallowed license ${JSON.stringify(license)}`);
-}
-
-function safePackagePath(path) {
-  return /^node_modules\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+(?:\/node_modules\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+)*$/i.test(path)
-    && path.split('/').every((part) => part !== '.' && part !== '..');
 }
 
 function legalFiles(directory) {
@@ -106,25 +105,6 @@ function legalFiles(directory) {
   return result;
 }
 
-// Some platform packages ship only a binary. Reuse their matching parent
-// package's actual license, never a generic license fetched from the internet.
-function parentLicensePath(name, metadata) {
-  let parent;
-  if (name.startsWith('@rolldown/binding-')) parent = 'rolldown';
-  if (name.startsWith('@rollup/rollup-')) parent = 'rollup';
-  if (name.startsWith('@esbuild/')) parent = 'esbuild';
-  if (name.startsWith('@astrojs/compiler-binding-')) parent = '@astrojs/compiler-binding';
-  if (name.startsWith('@bruits/satteri-')) parent = 'satteri';
-  if (name.startsWith('@pagefind/')) parent = 'pagefind';
-  if (name.startsWith('lightningcss-')) parent = 'lightningcss';
-  if (!parent) return undefined;
-  const path = `node_modules/${parent}`;
-  const owner = lock.packages[path];
-  if (owner?.version !== metadata.version || owner.license !== metadata.license
-    || !(owner.optionalDependencies?.[name] || owner.dependencies?.[name])) return undefined;
-  return path;
-}
-
 for (const [packagePath, metadata] of Object.entries(lock.packages).sort(([a], [b]) => a.localeCompare(b))) {
   if (!packagePath) continue;
   if (!safePackagePath(packagePath) || metadata.link) {
@@ -136,10 +116,11 @@ for (const [packagePath, metadata] of Object.entries(lock.packages).sort(([a], [
   const selectedLicense = metadata.license;
   const reviewedBuildOnly = reviewedToolLicenses.has(identity) || declarationOnlyTools.has(identity);
   assertLicense(selectedLicense, `${name}@${metadata.version}`);
-  const location = resolve(root, packagePath);
-  const installed = existsSync(join(location, 'package.json'));
+  const installedPath = installedPaths.get(packagePath);
+  const location = installedPath === null ? null : resolve(root, installedPath);
+  const installed = installedPath !== null;
   const record = {
-    name, version: metadata.version, license: metadata.license, selectedLicense, packagePath,
+    name, version: metadata.version, license: metadata.license, selectedLicense, packagePath, installedPath,
     developmentOnly: metadata.dev === true, reviewedBuildOnly, optional: metadata.optional === true,
     installed, registryArchive: metadata.resolved ?? null, repository: null,
     integrity: metadata.integrity ?? null, noticeCoverage: installed ? 'bundled-legal-texts' : 'not-installed', notices: [],
@@ -156,10 +137,10 @@ for (const [packagePath, metadata] of Object.entries(lock.packages).sort(([a], [
     if (manifest.name !== name || manifest.version !== metadata.version || manifest.license !== metadata.license) {
       throw new Error('Installed package name, version, or license differs from package-lock.json; run npm ci.');
     }
-    let sourcePackage = packagePath;
+    let sourcePackage = installedPath;
     let notices = legalFiles(location);
     if (notices.length === 0) {
-      const parent = parentLicensePath(name, metadata);
+      const parent = parentLicensePath(installedPath, name, metadata, actualPackages, (candidate) => installedManifests[candidate]);
       if (parent && existsSync(join(root, parent, 'package.json'))) {
         sourcePackage = parent;
         notices = legalFiles(join(root, parent));
@@ -182,7 +163,7 @@ for (const [packagePath, metadata] of Object.entries(lock.packages).sort(([a], [
       throw new Error('No actual license text found; review the package before adding an exception.');
     }
     if (declaredOnly || libvipsBundle) {
-      sourcePackage = packagePath;
+      sourcePackage = installedPath;
       record.noticeCoverage = 'upstream-declarations-only; tooling-not-distributed';
       // README contains MIT attribution for the CLI helpers, and the complete
       // component license table for libvips. versions.json identifies that bundle.
@@ -206,7 +187,7 @@ for (const [packagePath, metadata] of Object.entries(lock.packages).sort(([a], [
 if (errors.length) throw new Error(`Dependency license review failed:\n${errors.map((error) => `- ${error}`).join('\n')}`);
 
 const manifest = {
-  description: 'Locked documentation dependency metadata and unchanged upstream notices. Some non-distributed tools provide declarations only, explicitly identified per package. Bundled components may have additional licenses within the preserved texts.',
+  description: 'Locked documentation dependency metadata and unchanged upstream notices. Some non-distributed tools provide declarations only, explicitly identified per package. Bundled components may have additional licenses within the preserved texts. packagePath identifies the npm lock entry; installedPath identifies the actual matching package. Archive integrity is lockfile provenance, not a hash of installed files.',
   ledgenceLicense: 'LEDGENCE-LICENSE.txt',
   lockfileSha256: digest(readFileSync(join(root, 'package-lock.json'))),
   allowedPackageLicenses: [...allowed].sort(),
